@@ -242,6 +242,9 @@ export default function SunatLoginModal({ isOpen, onClose, client }) {
                       D:\jose\Agenda_MQL\extension_autologin_sunat
                     </div>
                   </li>
+                  <li className="text-amber-200 font-semibold">
+                    🔄 Si ya la tenías cargada antes, simplemente pulsa el botón <strong>"Actualizar / Recargar 🔄"</strong> en la tarjeta de la extensión para habilitar el dominio de GitHub Pages.
+                  </li>
                 </ol>
               </div>
             )}

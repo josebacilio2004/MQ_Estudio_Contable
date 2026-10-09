@@ -294,6 +294,153 @@ async function initDb() {
     }
     console.log('✅ Clientes de demostración insertados.');
   }
+
+  // Asegurar que el cliente oficial Mister Pepe II exista
+  const mrPepeCheck = await pool.query("SELECT id FROM clients WHERE ruc = '10418236103'");
+  let mrPepeId = 'client-mr-pepe-2';
+  if (mrPepeCheck.rows.length === 0) {
+    console.log('🌱 Registrando cliente oficial MISTER PEPE II...');
+    await pool.query(`
+      INSERT INTO clients (
+        id, user_id, ruc, razon_social, nombre_comercial, telefono, email,
+        sunat_usuario, sunat_clave, estado_contribuyente, condicion_domicilio,
+        notificaciones_pendientes, origen_notificacion, detalle_notificacion, notas
+      ) VALUES (
+        $1, $2, '10418236103', 'DE LA CRUZ BALDEON ROCIO ELENA', 'MISTER PEPE II', '941823610', 'misterpepe2@gmail.com',
+        '74934503', '74934503Fact', 'ACTIVO', 'HABIDO', 3, 'SUNAT', 'Propuesta del Registro de Compras y Ventas - 202608',
+        'Pollería y restaurante. Régimen Especial / Mype Tributario.'
+      )
+    `, [mrPepeId, defaultUserId]);
+  } else {
+    mrPepeId = mrPepeCheck.rows[0].id;
+    await pool.query(`
+      UPDATE clients 
+      SET notificaciones_pendientes = 3, 
+          origen_notificacion = 'SUNAT',
+          detalle_notificacion = 'Propuesta del Registro de Compras y Ventas - 202608'
+      WHERE id = $1
+    `, [mrPepeId]);
+  }
+
+  // 6. Tabla de Notificaciones / Correos del Buzón Electrónico SUNAT y SUNAFIL
+  const createNotificationsTableQuery = `
+    CREATE TABLE IF NOT EXISTS client_notifications (
+      id VARCHAR(64) PRIMARY KEY,
+      client_id VARCHAR(64) REFERENCES clients(id) ON DELETE CASCADE,
+      user_id VARCHAR(64),
+      asunto VARCHAR(255) NOT NULL,
+      fecha VARCHAR(50),
+      remitente VARCHAR(100) DEFAULT 'SUNAT',
+      categoria VARCHAR(100) DEFAULT 'SIRE',
+      contenido TEXT,
+      is_read BOOLEAN DEFAULT FALSE,
+      has_attachment BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_notifications_client ON client_notifications(client_id);
+    CREATE INDEX IF NOT EXISTS idx_notifications_user ON client_notifications(user_id);
+  `;
+  await pool.query(createNotificationsTableQuery);
+
+  // Sembrar los mensajes oficiales de la bandeja de SUNAT de Mister Pepe II
+  const checkNotifs = await pool.query('SELECT COUNT(*) FROM client_notifications WHERE client_id = $1', [mrPepeId]);
+  if (parseInt(checkNotifs.rows[0].count, 10) === 0) {
+    console.log('🌱 Sembrando correos del Buzón Electrónico SUNAT para Mister Pepe II...');
+    const seedNotifs = [
+      {
+        id: 'msg-pepe-1',
+        client_id: mrPepeId,
+        user_id: defaultUserId,
+        asunto: 'Propuesta del Registro de Compras y Ventas - 202608',
+        fecha: '03/10/2026 14:14:45',
+        remitente: 'SUNAT Operaciones en Línea',
+        categoria: 'SIRE',
+        is_read: false,
+        has_attachment: false,
+        contenido: `DE LA CRUZ BALDEON ROCIO ELENA\nRUC: 10418236103\n\nEstimado(a) Contribuyente:\nEn la SUNAT, hemos asumido el compromiso de brindarle la asistencia necesaria para que usted pueda cumplir, oportuna y correctamente, con sus obligaciones tributarias.\n\nEn ese sentido, le informamos que, según la información de sus comprobantes de pago electrónicos y documentos autorizados, se ha efectuado la propuesta para la generación de su Registro de Compras Electrónico (RCE) y Registro de Ventas e Ingresos Electrónicos (RVIE) a través del Sistema Integral de Registros Electrónicos (SIRE) al cual puede acceder en SUNAT Operaciones en Línea.\n\nPeriodo: 202608\n\nRCE - Compras:\nTipo de Documento | Cantidad\n01 Factura | 32\n07 Nota de Crédito | 1\nTotal: 33\n\nRVIE - Ventas:\nTipo de Documento | Cantidad\n01 Factura | 19\n03 Boleta de Venta | 4\nTotal: 23\n\nLe solicitamos que valide la propuesta y, de ser el caso, proceda a la generación del Registro de Compras y Registro de Ventas e Ingresos Electrónicos a partir del octavo día del presente mes y dentro de los plazos máximos de atraso establecidos para su generación.\n\nPara más información, visite nuestro micrositio: cpe.sunat.gob.pe\n\nAtentamente,\nSUNAT`
+      },
+      {
+        id: 'msg-pepe-2',
+        client_id: mrPepeId,
+        user_id: defaultUserId,
+        asunto: 'Generación de Registro RVIE y RCE del periodo 202608',
+        fecha: '17/09/2026 16:48:20',
+        remitente: 'SUNAT - SIRE',
+        categoria: 'SIRE',
+        is_read: false,
+        has_attachment: true,
+        contenido: `DE LA CRUZ BALDEON ROCIO ELENA\nRUC: 10418236103\n\nSe ha completado satisfactoriamente el procesamiento del Registro de Ventas e Ingresos Electrónico (RVIE) y Registro de Compras Electrónico (RCE) para el periodo 2026-08.\n\nSe adjunta la constancia de recepción electrónica correspondiente.`
+      },
+      {
+        id: 'msg-pepe-3',
+        client_id: mrPepeId,
+        user_id: defaultUserId,
+        asunto: 'Inicio de generación de RVIE y RCE periodo 202608',
+        fecha: '17/09/2026 16:45:12',
+        remitente: 'SUNAT - SIRE',
+        categoria: 'SIRE',
+        is_read: false,
+        has_attachment: false,
+        contenido: `Se ha iniciado el proceso de validación preliminar de comprobantes de pago electrónicos para la propuesta del periodo tributario 202608.`
+      },
+      {
+        id: 'msg-pepe-4',
+        client_id: mrPepeId,
+        user_id: defaultUserId,
+        asunto: 'Vencimiento del Registro de Compras y Ventas - 202608',
+        fecha: '16/09/2026 08:58:21',
+        remitente: 'SUNAT Alertas',
+        categoria: 'Avisos',
+        is_read: true,
+        has_attachment: false,
+        contenido: `Recordatorio de vencimiento de obligaciones tributarias para el dígito 3 de RUC correspondiente al periodo 2026-08.`
+      },
+      {
+        id: 'msg-pepe-5',
+        client_id: mrPepeId,
+        user_id: defaultUserId,
+        asunto: 'Envío de clave (PIN) de instalación del CDT - Número de Solicitud 2026000818074',
+        fecha: '07/09/2026 14:00:30',
+        remitente: 'Certificado Digital SUNAT',
+        categoria: 'CDT',
+        is_read: true,
+        has_attachment: false,
+        contenido: `Se ha generado el PIN de seguridad de su Certificado Digital Tributario (CDT). Utilícelo para la emisión autorizada de sus comprobantes de pago electrónicos.`
+      },
+      {
+        id: 'msg-pepe-6',
+        client_id: mrPepeId,
+        user_id: defaultUserId,
+        asunto: 'Emisión de Certificado Digital Tributario - Número de Solicitud 2026000818071',
+        fecha: '07/09/2026 13:57:01',
+        remitente: 'Certificado Digital SUNAT',
+        categoria: 'CDT',
+        is_read: true,
+        has_attachment: false,
+        contenido: `Su solicitud N° 2026000818071 de emisión gratuita de Certificado Digital Tributario ha sido aprobada con éxito.`
+      },
+      {
+        id: 'msg-pepe-7',
+        client_id: mrPepeId,
+        user_id: defaultUserId,
+        asunto: 'Sistema de Emisión Electrónica SOL',
+        fecha: '05/09/2026 16:31:31',
+        remitente: 'SUNAT Comprobantes',
+        categoria: 'Avisos',
+        is_read: true,
+        has_attachment: false,
+        contenido: `Actualización de parámetros técnicos para la emisión de facturas y boletas electrónicas desde el portal SUNAT Operaciones en Línea.`
+      }
+    ];
+
+    for (const msg of seedNotifs) {
+      await pool.query(`
+        INSERT INTO client_notifications (id, client_id, user_id, asunto, fecha, remitente, categoria, is_read, has_attachment, contenido)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `, [msg.id, msg.client_id, msg.user_id, msg.asunto, msg.fecha, msg.remitente, msg.categoria, msg.is_read, msg.has_attachment, msg.contenido]);
+    }
+    console.log('✅ 7 correos del Buzón SUNAT insertados para Mister Pepe II.');
+  }
 }
 
 module.exports = {

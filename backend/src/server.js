@@ -707,6 +707,171 @@ app.patch('/api/clients/:id/notifications', authMiddleware, async (req, res) => 
 });
 
 // ==========================================
+// --- BANDEJA / BUZÓN ELECTRÓNICO CLIENTES --
+// ==========================================
+
+// Obtener mensajes del buzón de un cliente
+app.get('/api/clients/:id/inbox', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Verificar pertenencia del cliente
+    const clientRes = await pool.query(
+      'SELECT id, ruc, razon_social, notificaciones_pendientes FROM clients WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)',
+      [id, req.userId]
+    );
+
+    if (clientRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Cliente no encontrado' });
+    }
+
+    const notifs = await pool.query(
+      `SELECT * FROM client_notifications 
+       WHERE client_id = $1 
+       ORDER BY created_at DESC`,
+      [id]
+    );
+
+    const unreadCount = notifs.rows.filter(m => !m.is_read).length;
+
+    res.json({
+      client: clientRes.rows[0],
+      notifications: notifs.rows,
+      unread_count: unreadCount
+    });
+  } catch (err) {
+    console.error('Error al consultar buzón del cliente:', err);
+    res.status(500).json({ error: 'Error al obtener notificaciones del buzón' });
+  }
+});
+
+// Marcar mensaje como leído / no leído
+app.patch('/api/clients/:id/inbox/:msgId/read', authMiddleware, async (req, res) => {
+  try {
+    const { id, msgId } = req.params;
+    const { is_read = true, deviceId } = req.body;
+
+    // Verificar pertenencia del cliente
+    const clientRes = await pool.query(
+      'SELECT id FROM clients WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)',
+      [id, req.userId]
+    );
+
+    if (clientRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Cliente no encontrado' });
+    }
+
+    // Actualizar mensaje
+    const msgUpdate = await pool.query(
+      `UPDATE client_notifications 
+       SET is_read = $1 
+       WHERE id = $2 AND client_id = $3 
+       RETURNING *`,
+      [Boolean(is_read), msgId, id]
+    );
+
+    if (msgUpdate.rows.length === 0) {
+      return res.status(404).json({ error: 'Mensaje no encontrado' });
+    }
+
+    // Recalcular conteo de pendientes y actualizar tabla clients
+    const countRes = await pool.query(
+      'SELECT COUNT(*) FROM client_notifications WHERE client_id = $1 AND is_read = false',
+      [id]
+    );
+    const newUnread = parseInt(countRes.rows[0].count, 10);
+
+    const updatedClientRes = await pool.query(
+      `UPDATE clients 
+       SET notificaciones_pendientes = $1, updated_at = NOW() 
+       WHERE id = $2 
+       RETURNING *`,
+      [newUnread, id]
+    );
+
+    const updatedClient = updatedClientRes.rows[0];
+
+    // Transmitir actualización en tiempo real a todos los dispositivos del usuario
+    broadcastToUser(req.userId, 'client:updated', {
+      client: updatedClient,
+      originDeviceId: deviceId
+    });
+
+    res.json({
+      message: msgUpdate.rows[0],
+      unread_count: newUnread,
+      client: updatedClient
+    });
+  } catch (err) {
+    console.error('Error al marcar mensaje como leído:', err);
+    res.status(500).json({ error: 'Error al actualizar estado del mensaje' });
+  }
+});
+
+// Agregar mensaje manual o desde scraper a la bandeja
+app.post('/api/clients/:id/inbox', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { asunto, fecha, remitente, categoria, contenido, has_attachment, deviceId } = req.body;
+
+    if (!asunto) {
+      return res.status(400).json({ error: 'El asunto es obligatorio.' });
+    }
+
+    const clientRes = await pool.query(
+      'SELECT id FROM clients WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)',
+      [id, req.userId]
+    );
+
+    if (clientRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Cliente no encontrado' });
+    }
+
+    const msgId = 'msg-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+    const dateStr = fecha || new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' });
+
+    const insertRes = await pool.query(
+      `INSERT INTO client_notifications (id, client_id, user_id, asunto, fecha, remitente, categoria, contenido, is_read, has_attachment)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9)
+       RETURNING *`,
+      [msgId, id, req.userId, asunto.trim(), dateStr, remitente || 'SUNAT Operaciones en Línea', categoria || 'SIRE', contenido || '', Boolean(has_attachment)]
+    );
+
+    // Incrementar notificaciones pendientes del cliente
+    const countRes = await pool.query(
+      'SELECT COUNT(*) FROM client_notifications WHERE client_id = $1 AND is_read = false',
+      [id]
+    );
+    const newUnread = parseInt(countRes.rows[0].count, 10);
+
+    const updatedClientRes = await pool.query(
+      `UPDATE clients 
+       SET notificaciones_pendientes = $1, origen_notificacion = 'SUNAT', detalle_notificacion = $2, updated_at = NOW() 
+       WHERE id = $3 
+       RETURNING *`,
+      [newUnread, asunto.trim(), id]
+    );
+
+    const updatedClient = updatedClientRes.rows[0];
+
+    broadcastToUser(req.userId, 'client:updated', {
+      client: updatedClient,
+      originDeviceId: deviceId
+    });
+
+    res.status(201).json({
+      message: insertRes.rows[0],
+      unread_count: newUnread,
+      client: updatedClient
+    });
+  } catch (err) {
+    console.error('Error al insertar mensaje en buzón:', err);
+    res.status(500).json({ error: 'Error al agregar mensaje' });
+  }
+});
+
+
+// ==========================================
 // --- ENDPOINTS DEL SCRAPER ROBOT (SUNAT) --
 // ==========================================
 

@@ -21,9 +21,11 @@ import {
   Phone,
   Bot,
   RefreshCw,
-  Loader2
+  Loader2,
+  Inbox
 } from 'lucide-react';
 import SunatLoginModal from './SunatLoginModal';
+import SunatInboxModal from './SunatInboxModal';
 import { api } from '../services/api';
 
 export default function ClientsView({
@@ -38,6 +40,7 @@ export default function ClientsView({
   const [visiblePasswords, setVisiblePasswords] = useState({});
   const [copiedKey, setCopiedKey] = useState(null);
   const [selectedSunatClient, setSelectedSunatClient] = useState(null);
+  const [selectedInboxClient, setSelectedInboxClient] = useState(null);
   const [scanningClientId, setScanningClientId] = useState(null);
   const [isScanningAll, setIsScanningAll] = useState(false);
   const [scanStatusMessage, setScanStatusMessage] = useState(null);
@@ -331,28 +334,54 @@ export default function ClientsView({
                   {hasAlerts ? (
                     <div className="mt-3.5 p-3 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-200 space-y-1.5">
                       <div className="flex items-center justify-between">
-                        <span className="flex items-center gap-1.5 text-xs font-bold text-amber-300">
+                        <span 
+                          onClick={() => setSelectedInboxClient(client)}
+                          className="flex items-center gap-1.5 text-xs font-bold text-amber-300 cursor-pointer hover:underline"
+                          title="Hacer clic para abrir bandeja"
+                        >
                           <AlertTriangle className="w-4 h-4 text-amber-400" />
                           <span>{client.notificaciones_pendientes} Alerta(s) en {client.origen_notificacion || 'Buzón'}</span>
                         </span>
-                        <button
-                          onClick={() => onClearNotification(client.id)}
-                          className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/30 transition"
-                          title="Marcar como revisada"
-                        >
-                          Resolver
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setSelectedInboxClient(client)}
+                            className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 transition flex items-center gap-1"
+                            title="Abrir Buzón Electrónico"
+                          >
+                            <Inbox className="w-3 h-3" />
+                            <span>Ver Buzón</span>
+                          </button>
+                          <button
+                            onClick={() => onClearNotification(client.id)}
+                            className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/30 transition"
+                            title="Marcar como revisada"
+                          >
+                            Resolver
+                          </button>
+                        </div>
                       </div>
                       {client.detalle_notificacion && (
-                        <p className="text-[11px] text-amber-200/90 leading-tight">
+                        <p 
+                          onClick={() => setSelectedInboxClient(client)}
+                          className="text-[11px] text-amber-200/90 leading-tight cursor-pointer hover:text-white transition"
+                        >
                           {client.detalle_notificacion}
                         </p>
                       )}
                     </div>
                   ) : (
-                    <div className="mt-3.5 py-1.5 px-3 rounded-xl bg-slate-950/60 border border-slate-800/60 flex items-center gap-2 text-[11px] text-slate-400">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      <span>Buzón al día (Sin alertas pendientes)</span>
+                    <div 
+                      onClick={() => setSelectedInboxClient(client)}
+                      className="mt-3.5 py-1.5 px-3 rounded-xl bg-slate-950/60 border border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400 hover:border-slate-700 cursor-pointer transition"
+                    >
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span>Buzón al día (Sin alertas pendientes)</span>
+                      </div>
+                      <span className="text-[10px] text-blue-400 font-semibold hover:underline flex items-center gap-1">
+                        <Inbox className="w-3 h-3" />
+                        <span>Ver Bandeja</span>
+                      </span>
                     </div>
                   )}
 
@@ -420,6 +449,20 @@ export default function ClientsView({
                 {/* 4. ACCIONES RÁPIDAS DEL CLIENTE */}
                 <div className="mt-4 pt-3.5 border-t border-slate-800/80 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5 flex-1">
+                    {/* Botón Buzón SUNAT */}
+                    <button
+                      onClick={() => setSelectedInboxClient(client)}
+                      className={`flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl border text-xs font-bold transition active:scale-95 shadow-sm ${
+                        hasAlerts
+                          ? 'bg-rose-500/15 hover:bg-rose-500/25 border-rose-500/30 text-rose-300'
+                          : 'bg-slate-800/80 hover:bg-slate-800 border-slate-700 text-slate-200'
+                      }`}
+                      title="Ver bandeja de notificaciones y correos del Buzón Electrónico SUNAT"
+                    >
+                      <Inbox className={`w-3.5 h-3.5 ${hasAlerts ? 'text-rose-400' : 'text-blue-400'}`} />
+                      <span className="text-[11px]">Buzón {client.notificaciones_pendientes > 0 ? `(${client.notificaciones_pendientes})` : ''}</span>
+                    </button>
+
                     {/* Botón Escáner Robot SUNAT en Servidor */}
                     <button
                       onClick={() => handleScanSingleClient(client)}
@@ -487,6 +530,14 @@ export default function ClientsView({
           })}
         </div>
       )}
+
+      {/* Modal de Bandeja de Correo / Notificaciones SUNAT */}
+      <SunatInboxModal
+        isOpen={!!selectedInboxClient}
+        onClose={() => setSelectedInboxClient(null)}
+        client={selectedInboxClient}
+        onOpenSunatLogin={(c) => setSelectedSunatClient(c)}
+      />
 
       {/* Modal de Acceso SUNAT Clave SOL con AutoLogin */}
       <SunatLoginModal

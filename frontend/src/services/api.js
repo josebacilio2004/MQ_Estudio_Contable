@@ -233,5 +233,36 @@ export const api = {
     });
     if (!res.ok) throw new Error('Error al iniciar escaneo masivo');
     return res.json();
+  },
+
+  // --- BANDEJA / BUZÓN ELECTRÓNICO SUNAT ---
+  async getClientInbox(id) {
+    const res = await fetch(`${getBaseUrl()}/clients/${id}/inbox`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Error al cargar la bandeja de notificaciones');
+    return res.json();
+  },
+
+  async markInboxRead(clientId, msgId, is_read = true) {
+    const deviceId = getDeviceId();
+    const res = await fetch(`${getBaseUrl()}/clients/${clientId}/inbox/${msgId}/read`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ is_read, deviceId })
+    });
+    if (!res.ok) throw new Error('Error al actualizar estado del mensaje');
+    return res.json();
+  },
+
+  async addInboxMessage(clientId, msgData) {
+    const deviceId = getDeviceId();
+    const res = await fetch(`${getBaseUrl()}/clients/${clientId}/inbox`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ ...msgData, deviceId })
+    });
+    if (!res.ok) throw new Error('Error al registrar notificación');
+    return res.json();
   }
 };
