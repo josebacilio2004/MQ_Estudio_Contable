@@ -18,7 +18,9 @@
       "matches": [
         "http://localhost/*",
         "http://127.0.0.1/*",
-        "http://192.168.1.21/*"
+        "https://*.github.io/*",
+        "https://*.onrender.com/*",
+        "http://192.168.*/*"
       ],
       "js": ["content_mql.js"],
       "run_at": "document_start"

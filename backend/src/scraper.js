@@ -41,7 +41,7 @@ async function checkClientBuzon(client) {
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36');
     await page.setViewport({ width: 1280, height: 800 });
 
-    const SUNAT_LOGIN_URL = 'https://api-seguridad.sunat.gob.pe/v1/clientessol/4f3b88b3-d9d6-402a-b85d-6a0bc857746a/oauth2/authen?redirect_uri=https://e-menu.sunat.gob.pe/cl-ti-itmenu/AutenticaMenuInternet.htm&client_id=4f3b88b3-d9d6-402a-b85d-6a0bc857746a&response_type=code';
+    const SUNAT_LOGIN_URL = 'https://e-menu.sunat.gob.pe/cl-ti-itmenu/MenuInternet.htm?pestana=*&agrupacion=*';
 
     // 1. Navegar al portal oficial de SUNAT
     await page.goto(SUNAT_LOGIN_URL, { waitUntil: 'networkidle2', timeout: 25000 });

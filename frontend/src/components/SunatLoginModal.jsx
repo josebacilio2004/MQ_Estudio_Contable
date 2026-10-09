@@ -41,7 +41,7 @@ export default function SunatLoginModal({ isOpen, onClose, client }) {
   };
 
   // URL Oficial y Activa de SUNAT Operaciones en Línea (Clave SOL)
-  const SUNAT_LOGIN_URL = 'https://api-seguridad.sunat.gob.pe/v1/clientessol/4f3b88b3-d9d6-402a-b85d-6a0bc857746a/oauth2/authen?redirect_uri=https://e-menu.sunat.gob.pe/cl-ti-itmenu/AutenticaMenuInternet.htm&client_id=4f3b88b3-d9d6-402a-b85d-6a0bc857746a&response_type=code';
+  const SUNAT_LOGIN_URL = 'https://e-menu.sunat.gob.pe/cl-ti-itmenu/MenuInternet.htm?pestana=*&agrupacion=*';
   const SUNAFIL_URL = 'https://casillaelectronica.sunafil.gob.pe/';
 
   // Código bookmarklet para auto-rellenar en caso de usar sin extensión
@@ -75,15 +75,8 @@ export default function SunatLoginModal({ isOpen, onClose, client }) {
     // 2. Respaldo en portapapeles
     navigator.clipboard.writeText(`${client.ruc}\t${client.sunat_usuario}\t${client.sunat_clave}`);
 
-    // 3. Respaldo adicional en Hash
-    const payload = btoa(JSON.stringify({
-      ruc: client.ruc,
-      usuario: client.sunat_usuario,
-      clave: client.sunat_clave
-    }));
-
-    const targetUrl = `${SUNAT_LOGIN_URL}#mql_login=${encodeURIComponent(payload)}`;
-    window.open(targetUrl, '_blank', 'noopener,noreferrer');
+    // 3. Abrir directamente la URL oficial limpia de SUNAT
+    window.open(SUNAT_LOGIN_URL, '_blank', 'noopener,noreferrer');
   };
 
   const handleOpenSunafil = () => {
