@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ExternalLink, Link2, Search, Calendar, Clock, Globe } from 'lucide-react';
+import LinkPreviewCard from './LinkPreviewCard';
 
 export default function LinksDirectory({ items, onEdit }) {
   const [search, setSearch] = useState('');
@@ -17,14 +18,6 @@ export default function LinksDirectory({ items, onEdit }) {
     );
   });
 
-  const getDomain = (url) => {
-    try {
-      return new URL(url).hostname;
-    } catch {
-      return url;
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -35,7 +28,7 @@ export default function LinksDirectory({ items, onEdit }) {
             <span>Directorio de Enlaces Rápidos</span>
           </h2>
           <p className="text-xs text-slate-400">
-            Todos los accesos directos, salas de videollamada y plataformas vinculadas a tu agenda.
+            Todos los accesos directos, salas de videollamada y plataformas vinculadas a tu agenda con previsualización enriquecida.
           </p>
         </div>
 
@@ -61,11 +54,11 @@ export default function LinksDirectory({ items, onEdit }) {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map((item) => (
             <div
               key={item.id}
-              className="bg-slate-900/90 border border-slate-800 hover:border-indigo-500/50 p-4 rounded-2xl flex flex-col justify-between group transition-all shadow-sm hover:shadow-indigo-500/10"
+              className="bg-slate-900/90 border border-slate-800 hover:border-indigo-500/50 p-4 rounded-3xl flex flex-col justify-between group transition-all shadow-sm hover:shadow-indigo-500/10"
             >
               <div>
                 <div className="flex items-center justify-between gap-2 mb-2">
@@ -103,19 +96,9 @@ export default function LinksDirectory({ items, onEdit }) {
                 </div>
               </div>
 
-              <div className="mt-4 pt-3 border-t border-slate-800/80">
-                <a
-                  href={item.external_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-gradient-to-r from-blue-600/20 to-indigo-600/20 hover:from-blue-600/30 hover:to-indigo-600/30 border border-blue-500/30 hover:border-blue-400 text-blue-300 hover:text-white text-xs font-semibold transition active:scale-95 group/btn"
-                >
-                  <div className="flex items-center gap-2 truncate">
-                    <Globe className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                    <span className="truncate">{item.url_label || getDomain(item.external_url)}</span>
-                  </div>
-                  <ExternalLink className="w-3.5 h-3.5 shrink-0 ml-1 group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-0.5 transition-transform" />
-                </a>
+              {/* Tarjeta Enriquecida OpenGraph */}
+              <div className="mt-3 pt-3 border-t border-slate-800/80">
+                <LinkPreviewCard url={item.external_url} label={item.url_label} />
               </div>
             </div>
           ))}

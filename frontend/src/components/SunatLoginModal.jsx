@@ -64,19 +64,23 @@ export default function SunatLoginModal({ isOpen, onClose, client }) {
   })();`;
 
   const handleOpenSunat = () => {
-    // 1. Enviar solicitud a la extensión del navegador (canal seguro storage)
+    // 1. Enviar solicitud RPA con Session Isolation a la extensión del navegador (tipo Buzone)
     window.postMessage({
       type: 'MQL_AUTOLOGIN_REQUEST',
       ruc: client.ruc,
       usuario: client.sunat_usuario,
-      clave: client.sunat_clave
+      clave: client.sunat_clave,
+      razonSocial: client.razon_social,
+      mode: 'isolated_window'
     }, '*');
 
     // 2. Respaldo en portapapeles
     navigator.clipboard.writeText(`${client.ruc}\t${client.sunat_usuario}\t${client.sunat_clave}`);
 
-    // 3. Abrir directamente la URL oficial limpia de SUNAT
-    window.open(SUNAT_LOGIN_URL, '_blank', 'noopener,noreferrer');
+    // 3. Si la extensión no está instalada, abrir la URL oficial limpia de SUNAT
+    if (!isExtensionInstalled) {
+      window.open(SUNAT_LOGIN_URL, '_blank', 'noopener,noreferrer');
+    }
   };
 
   const handleOpenSunafil = () => {

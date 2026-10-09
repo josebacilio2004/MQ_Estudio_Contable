@@ -1,23 +1,24 @@
 // Content script que corre dentro del portal oficial de SUNAT Clave SOL y SUNAFIL
+// Automatización Robótica (RPA) y Soporte de Sesiones Aisladas (Buzone Architecture)
 
 (function () {
-  console.log('🏛️ [Agenda MQL Extension] Verificando credenciales en portal de SUNAT/SUNAFIL...');
+  console.log('🏛️ [Agenda MQL Extension] Verificando credenciales aisladas en portal de SUNAT/SUNAFIL...');
 
-  // 1. Obtener credenciales pendientes desde chrome.storage.local (o hash de respaldo)
-  chrome.storage.local.get(['pendingSunatLogin'], (result) => {
-    let credentials = result.pendingSunatLogin;
+  // Intentar obtener credenciales asignadas específicamente a esta pestaña/ventana
+  chrome.runtime.sendMessage({ type: 'GET_TAB_CREDENTIALS' }, (response) => {
+    let credentials = response ? response.credentials : null;
 
-    // Respaldo por si se abrió con hash
-    if (!credentials && window.location.hash && window.location.hash.includes('mql_login=')) {
-      try {
-        const raw = window.location.hash.split('mql_login=')[1];
-        credentials = JSON.parse(atob(decodeURIComponent(raw)));
-        history.replaceState(null, null, window.location.pathname + window.location.search);
-      } catch (e) {
-        console.warn('Error leyendo hash:', e);
-      }
+    if (!credentials) {
+      // Respaldo en storage local
+      chrome.storage.local.get(['pendingSunatLogin'], (res) => {
+        proceedWithLogin(res.pendingSunatLogin);
+      });
+    } else {
+      proceedWithLogin(credentials);
     }
+  });
 
+  function proceedWithLogin(credentials) {
     if (!credentials || !credentials.ruc || !credentials.clave) {
       return;
     }
@@ -29,12 +30,12 @@
       return;
     }
 
-    const { ruc, usuario, clave } = credentials;
-    console.log(`🔐 [Agenda MQL] Ejecutando Auto-Login para RUC: ${ruc}...`);
+    const { ruc, usuario, clave, razonSocial } = credentials;
+    console.log(`🔐 [Agenda MQL] Ejecutando Auto-Login RPA para RUC: ${ruc} (${razonSocial || ''})...`);
 
-    showVisualBadge(ruc);
+    showVisualBadge(ruc, razonSocial);
 
-    // 2. Intentar autocompletar buscando los inputs periódicamente
+    // Intentar autocompletar buscando los inputs periódicamente
     let attempts = 0;
     const maxAttempts = 35; // 35 * 200ms = 7 segundos
 
@@ -72,33 +73,29 @@
       if (rucInput && userInput && pwdInput) {
         clearInterval(interval);
 
-        // Limpiar almacenamiento para no repetir en futuras cargas
+        // Limpiar para no repetir en futuras recargas accidentales
         chrome.storage.local.remove('pendingSunatLogin');
 
-        // Llenar RUC
+        // Inyección de valores nativos
         setNativeValue(rucInput, ruc);
-
-        // Llenar Usuario
         setNativeValue(userInput, usuario);
-
-        // Llenar Contraseña
         setNativeValue(pwdInput, clave);
 
         console.log('✅ [Agenda MQL] RUC, Usuario y Clave SOL inyectados exitosamente.');
 
-        // Enviar formulario automáticamente
+        // Enviar formulario automáticamente (RPA)
         setTimeout(() => {
           if (submitBtn) {
             console.log('🚀 [Agenda MQL] Pulsando botón Iniciar Sesión...');
             submitBtn.click();
           }
-        }, 400);
+        }, 350);
       } else if (attempts >= maxAttempts) {
         clearInterval(interval);
         console.warn('⚠️ [Agenda MQL] No se encontraron los campos del formulario tras 7 segundos.');
       }
     }, 200);
-  });
+  }
 
   // Función para establecer valor disparando eventos compatibles con React, Angular y jQuery
   function setNativeValue(element, value) {
@@ -112,13 +109,16 @@
   }
 
   // Notificación visual flotante dentro del portal de SUNAT
-  function showVisualBadge(ruc) {
+  function showVisualBadge(ruc, razonSocial) {
     const badge = document.createElement('div');
     badge.id = 'mql-autologin-banner';
     badge.innerHTML = `
-      <div style="position:fixed; top:12px; right:12px; z-index:999999; background:#0f172a; color:#f8fafc; border:1px solid #3b82f6; border-radius:12px; padding:10px 16px; font-family:sans-serif; box-shadow:0 10px 25px rgba(0,0,0,0.5); display:flex; align-items:center; gap:8px;">
-        <span style="display:inline-block; width:10px; height:10px; background:#10b981; border-radius:50%; animation:pulse 1s infinite;"></span>
-        <span style="font-size:12px; font-weight:bold;">Agenda MQL: Iniciando sesión automática (RUC: ${ruc})...</span>
+      <div style="position:fixed; top:12px; right:12px; z-index:999999; background:#0f172a; color:#f8fafc; border:1px solid #3b82f6; border-radius:14px; padding:10px 16px; font-family:sans-serif; box-shadow:0 12px 30px rgba(0,0,0,0.6); display:flex; align-items:center; gap:10px;">
+        <span style="display:inline-block; width:10px; height:10px; background:#10b981; border-radius:50%; box-shadow:0 0 10px #10b981;"></span>
+        <div>
+          <div style="font-size:12px; font-weight:bold; color:#60a5fa;">Agenda MQL • Sesión Aislada SUNAT</div>
+          <div style="font-size:11px; color:#cbd5e1;">Iniciando sesión: ${razonSocial ? razonSocial.slice(0, 30) : ruc}...</div>
+        </div>
       </div>
     `;
     document.body.appendChild(badge);

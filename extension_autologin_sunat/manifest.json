@@ -1,18 +1,23 @@
 {
   "manifest_version": 3,
-  "name": "Agenda MQL - AutoLogin SUNAT & SUNAFIL",
-  "version": "1.1.0",
-  "description": "Inicio de sesión automático en el portal de SUNAT Clave SOL y SUNAFIL para clientes de Agenda MQL",
+  "name": "Agenda MQL - AutoLogin SUNAT & Buzone Session Isolation",
+  "version": "1.2.0",
+  "description": "Aislamiento de sesiones múltiples y auto-login RPA en portales de SUNAT Clave SOL y SUNAFIL para clientes de Agenda MQL",
   "icons": {
     "48": "icon48.png"
   },
   "permissions": [
-    "storage"
+    "storage",
+    "tabs",
+    "windows"
   ],
   "host_permissions": [
     "*://*.sunat.gob.pe/*",
     "*://*.sunafil.gob.pe/*"
   ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
       "matches": [

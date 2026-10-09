@@ -12,7 +12,9 @@ import {
   RotateCcw,
   GripVertical
 } from 'lucide-react';
+import LinkPreviewCard from './LinkPreviewCard';
 import { triggerHaptic } from '../utils/haptics';
+
 
 
 const COLUMNS = [
@@ -226,18 +228,11 @@ export default function KanbanBoard({
                         </span>
                       </div>
 
-                      {/* Enlace Externo (Si existe) */}
+                      {/* Previsualización Enriquecida OpenGraph (Notion / Slack) */}
                       {item.external_url && (
-                        <a
-                          href={item.external_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="w-full mb-3 inline-flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 text-blue-300 hover:text-white text-xs font-semibold transition"
-                        >
-                          <span className="truncate">{item.url_label || getDomainFromUrl(item.external_url)}</span>
-                          <ExternalLink className="w-3 h-3 shrink-0 ml-1 text-blue-400" />
-                        </a>
+                        <div className="mb-3" onClick={(e) => e.stopPropagation()}>
+                          <LinkPreviewCard url={item.external_url} label={item.url_label} />
+                        </div>
                       )}
 
                       {/* Botones de Desplazamiento Rápido (Ideales para Móvil o Touch) */}

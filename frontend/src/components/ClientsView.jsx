@@ -22,7 +22,9 @@ import {
   Bot,
   RefreshCw,
   Loader2,
-  Inbox
+  Inbox,
+  List,
+  LayoutGrid
 } from 'lucide-react';
 import SunatLoginModal from './SunatLoginModal';
 import SunatInboxModal from './SunatInboxModal';
@@ -38,6 +40,9 @@ export default function ClientsView({
 }) {
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState('all'); // 'all' | 'alerts' | 'active'
+  const [viewMode, setViewMode] = useState(() => {
+    return localStorage.getItem('mql_clients_view_mode') || 'list';
+  });
   const [visiblePasswords, setVisiblePasswords] = useState({});
   const [copiedKey, setCopiedKey] = useState(null);
   const [selectedSunatClient, setSelectedSunatClient] = useState(null);
@@ -46,6 +51,13 @@ export default function ClientsView({
   const [scanningClientId, setScanningClientId] = useState(null);
   const [isScanningAll, setIsScanningAll] = useState(false);
   const [scanStatusMessage, setScanStatusMessage] = useState(null);
+
+  const handleSetViewMode = (mode) => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem('mql_clients_view_mode', mode);
+    } catch {}
+  };
 
   const handleScanSingleClient = async (client) => {
     if (scanningClientId) return;
@@ -213,6 +225,34 @@ export default function ClientsView({
               <span>Con Alertas ({clientsWithAlerts.length})</span>
             </button>
           </div>
+
+          {/* Toggle de Vista: Lista vs Cuadrícula */}
+          <div className="flex items-center bg-slate-900 border border-slate-800 p-0.5 rounded-xl">
+            <button
+              onClick={() => handleSetViewMode('list')}
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition ${
+                viewMode === 'list'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="Ver en formato Lista compacta (por defecto)"
+            >
+              <List className="w-3.5 h-3.5" />
+              <span>Lista</span>
+            </button>
+            <button
+              onClick={() => handleSetViewMode('grid')}
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition ${
+                viewMode === 'grid'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="Ver en formato Cuadrícula de tarjetas"
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              <span>Cuadrícula</span>
+            </button>
+          </div>
         </div>
 
         {/* Botones de Acción */}
@@ -297,7 +337,159 @@ export default function ClientsView({
             <span>Registrar Primer Cliente</span>
           </button>
         </div>
+      ) : viewMode === 'list' ? (
+        /* Vista de Lista Compacta (Por defecto) */
+        <div className="flex flex-col space-y-2.5">
+          {filteredClients.map((client) => {
+            const hasAlerts = (client.notificaciones_pendientes || 0) > 0;
+            const isPasswordVisible = !!visiblePasswords[client.id];
+
+            return (
+              <div
+                key={client.id}
+                className={`bg-slate-900/90 border rounded-2xl p-3.5 sm:p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 transition-all duration-200 shadow-sm hover:shadow-md ${
+                  hasAlerts
+                    ? 'border-amber-500/50 bg-gradient-to-r from-amber-950/15 to-slate-900/90'
+                    : 'border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                {/* Info Principal: RUC, Razón Social, Estado */}
+                <div className="flex items-start sm:items-center gap-3 flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 bg-blue-500/10 border border-blue-500/20 px-2.5 py-1 rounded-xl shrink-0">
+                    <span className="text-[10px] text-blue-400 font-bold uppercase">RUC</span>
+                    <span className="font-mono text-xs font-extrabold text-blue-300 tracking-wider">
+                      {client.ruc}
+                    </span>
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-bold text-slate-100 truncate" title={client.razon_social}>
+                        {client.razon_social}
+                      </h3>
+                      <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
+                        {client.estado_contribuyente || 'ACTIVO'}
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-slate-800 text-slate-400 shrink-0 hidden sm:inline">
+                        {client.condicion_domicilio || 'HABIDO'}
+                      </span>
+                    </div>
+                    {client.nombre_comercial && (
+                      <p className="text-xs text-slate-400 truncate">
+                        {client.nombre_comercial}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Estado de Buzón y Credenciales SOL Rápidas */}
+                <div className="shrink-0 flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                  {hasAlerts ? (
+                    <button
+                      onClick={() => setSelectedInboxClient(client)}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 text-xs font-bold transition active:scale-95 animate-pulse"
+                      title={client.detalle_notificacion || 'Alertas pendientes en Buzón'}
+                    >
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                      <span>{client.notificaciones_pendientes} Alerta(s)</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setSelectedInboxClient(client)}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-medium transition"
+                      title="Buzón al día - Clic para ver mensajes"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Al día</span>
+                    </button>
+                  )}
+
+                  {/* Credenciales SOL */}
+                  <div className="flex items-center gap-1 bg-slate-950 px-2 py-1 rounded-xl border border-slate-800 text-xs font-mono">
+                    <span className="text-[10px] text-slate-500 font-sans font-bold">SOL:</span>
+                    <span className="text-slate-300 font-bold truncate max-w-[85px]" title={client.sunat_usuario}>
+                      {client.sunat_usuario}
+                    </span>
+                    <button
+                      onClick={() => handleCopy(client.sunat_clave, `pwd-${client.id}`)}
+                      className="p-0.5 text-slate-400 hover:text-white"
+                      title="Copiar Clave SOL"
+                    >
+                      {copiedKey === `pwd-${client.id}` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Acciones Rápidas */}
+                <div className="flex items-center justify-end gap-1.5 shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-slate-800/60">
+                  {/* Buzón */}
+                  <button
+                    onClick={() => setSelectedInboxClient(client)}
+                    className={`p-2 rounded-xl border text-xs font-semibold transition active:scale-95 ${
+                      hasAlerts
+                        ? 'bg-rose-500/15 hover:bg-rose-500/25 border-rose-500/30 text-rose-300'
+                        : 'bg-slate-800/80 hover:bg-slate-800 border-slate-700 text-slate-200'
+                    }`}
+                    title="Abrir Buzón Electrónico SUNAT"
+                  >
+                    <Inbox className={`w-3.5 h-3.5 ${hasAlerts ? 'text-rose-400' : 'text-blue-400'}`} />
+                  </button>
+
+                  {/* Escanear Robot */}
+                  <button
+                    onClick={() => handleScanSingleClient(client)}
+                    disabled={scanningClientId === client.id}
+                    className="p-2 rounded-xl bg-purple-600/15 hover:bg-purple-600/25 border border-purple-500/30 text-purple-300 transition active:scale-95 disabled:opacity-50"
+                    title="Escanear con Robot en servidor"
+                  >
+                    {scanningClientId === client.id ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-400" />
+                    ) : (
+                      <Bot className="w-3.5 h-3.5 text-purple-400" />
+                    )}
+                  </button>
+
+                  {/* Portal SUNAT */}
+                  <button
+                    onClick={() => setSelectedSunatClient(client)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-600/20 to-indigo-600/20 hover:from-blue-600/30 hover:to-indigo-600/30 border border-blue-500/30 text-blue-300 hover:text-white text-xs font-bold transition active:scale-95"
+                    title="Abrir SUNAT Clave SOL con AutoLogin"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5 text-blue-400" />
+                    <span>SUNAT SOL</span>
+                  </button>
+
+                  {/* WhatsApp */}
+                  <button
+                    onClick={() => handleOpenWhatsApp(client)}
+                    className="p-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-400 transition active:scale-95"
+                    title="Enviar WhatsApp"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" />
+                  </button>
+
+                  {/* Editar / Borrar */}
+                  <button
+                    onClick={() => onEditClient(client)}
+                    className="p-2 rounded-xl text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition"
+                    title="Editar"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => onDeleteClient(client.id)}
+                    className="p-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition"
+                    title="Eliminar"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       ) : (
+        /* Vista de Cuadrícula (Cards) */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredClients.map((client) => {
             const hasAlerts = (client.notificaciones_pendientes || 0) > 0;
