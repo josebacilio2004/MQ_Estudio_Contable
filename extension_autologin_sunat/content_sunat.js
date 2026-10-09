@@ -1,0 +1,129 @@
+// Content script que corre dentro del portal oficial de SUNAT Clave SOL y SUNAFIL
+
+(function () {
+  console.log('🏛️ [Agenda MQL Extension] Verificando credenciales en portal de SUNAT/SUNAFIL...');
+
+  // 1. Obtener credenciales pendientes desde chrome.storage.local (o hash de respaldo)
+  chrome.storage.local.get(['pendingSunatLogin'], (result) => {
+    let credentials = result.pendingSunatLogin;
+
+    // Respaldo por si se abrió con hash
+    if (!credentials && window.location.hash && window.location.hash.includes('mql_login=')) {
+      try {
+        const raw = window.location.hash.split('mql_login=')[1];
+        credentials = JSON.parse(atob(decodeURIComponent(raw)));
+        history.replaceState(null, null, window.location.pathname + window.location.search);
+      } catch (e) {
+        console.warn('Error leyendo hash:', e);
+      }
+    }
+
+    if (!credentials || !credentials.ruc || !credentials.clave) {
+      return;
+    }
+
+    // Verificar que las credenciales no tengan más de 5 minutos de antigüedad
+    if (credentials.timestamp && Date.now() - credentials.timestamp > 300000) {
+      console.log('⌛ [Agenda MQL] Credenciales expiradas (> 5 minutos).');
+      chrome.storage.local.remove('pendingSunatLogin');
+      return;
+    }
+
+    const { ruc, usuario, clave } = credentials;
+    console.log(`🔐 [Agenda MQL] Ejecutando Auto-Login para RUC: ${ruc}...`);
+
+    showVisualBadge(ruc);
+
+    // 2. Intentar autocompletar buscando los inputs periódicamente
+    let attempts = 0;
+    const maxAttempts = 35; // 35 * 200ms = 7 segundos
+
+    const interval = setInterval(() => {
+      attempts++;
+
+      // Cambiar a la pestaña "Entrar con RUC" si la página inicia en DNI
+      const btnPorRuc = document.getElementById('btnPorRuc') || 
+                        document.querySelector('.btnPorRuc') ||
+                        document.querySelector('button[value="ruc"]');
+      if (btnPorRuc && typeof btnPorRuc.click === 'function') {
+        const filaRuc = document.getElementById('divFilaRuc');
+        if (filaRuc && (filaRuc.style.display === 'none' || getComputedStyle(filaRuc).display === 'none')) {
+          btnPorRuc.click();
+        }
+      }
+
+      // Campos oficiales del portal de SUNAT Clave SOL
+      const rucInput = document.getElementById('txtRuc') || 
+                       document.querySelector('input[name="txtRuc"]') ||
+                       document.querySelector('input[placeholder*="RUC"]');
+
+      const userInput = document.getElementById('txtUsuario') || 
+                        document.querySelector('input[name="txtUsuario"]') ||
+                        document.querySelector('input[placeholder*="Usuario"]');
+
+      const pwdInput = document.getElementById('txtContrasena') || 
+                       document.querySelector('input[name="txtContrasena"]') ||
+                       document.querySelector('input[type="password"]');
+
+      const submitBtn = document.getElementById('btnAceptar') || 
+                        document.querySelector('button[type="submit"]') ||
+                        document.querySelector('.btn-primary');
+
+      if (rucInput && userInput && pwdInput) {
+        clearInterval(interval);
+
+        // Limpiar almacenamiento para no repetir en futuras cargas
+        chrome.storage.local.remove('pendingSunatLogin');
+
+        // Llenar RUC
+        setNativeValue(rucInput, ruc);
+
+        // Llenar Usuario
+        setNativeValue(userInput, usuario);
+
+        // Llenar Contraseña
+        setNativeValue(pwdInput, clave);
+
+        console.log('✅ [Agenda MQL] RUC, Usuario y Clave SOL inyectados exitosamente.');
+
+        // Enviar formulario automáticamente
+        setTimeout(() => {
+          if (submitBtn) {
+            console.log('🚀 [Agenda MQL] Pulsando botón Iniciar Sesión...');
+            submitBtn.click();
+          }
+        }, 400);
+      } else if (attempts >= maxAttempts) {
+        clearInterval(interval);
+        console.warn('⚠️ [Agenda MQL] No se encontraron los campos del formulario tras 7 segundos.');
+      }
+    }, 200);
+  });
+
+  // Función para establecer valor disparando eventos compatibles con React, Angular y jQuery
+  function setNativeValue(element, value) {
+    element.focus();
+    element.value = value;
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+    element.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
+    element.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+    element.blur();
+  }
+
+  // Notificación visual flotante dentro del portal de SUNAT
+  function showVisualBadge(ruc) {
+    const badge = document.createElement('div');
+    badge.id = 'mql-autologin-banner';
+    badge.innerHTML = `
+      <div style="position:fixed; top:12px; right:12px; z-index:999999; background:#0f172a; color:#f8fafc; border:1px solid #3b82f6; border-radius:12px; padding:10px 16px; font-family:sans-serif; box-shadow:0 10px 25px rgba(0,0,0,0.5); display:flex; align-items:center; gap:8px;">
+        <span style="display:inline-block; width:10px; height:10px; background:#10b981; border-radius:50%; animation:pulse 1s infinite;"></span>
+        <span style="font-size:12px; font-weight:bold;">Agenda MQL: Iniciando sesión automática (RUC: ${ruc})...</span>
+      </div>
+    `;
+    document.body.appendChild(badge);
+    setTimeout(() => {
+      if (badge && badge.parentNode) badge.parentNode.removeChild(badge);
+    }, 4500);
+  }
+})();

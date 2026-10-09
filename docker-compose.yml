@@ -1,0 +1,51 @@
+services:
+  agenda_db:
+    image: postgres:16-alpine
+    container_name: agenda_mql_db
+    restart: always
+    environment:
+      POSTGRES_USER: agenda_user
+      POSTGRES_PASSWORD: agenda_pass123
+      POSTGRES_DB: agenda_mql_db
+    ports:
+      - "5435:5432"
+    volumes:
+      - agenda_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agenda_user -d agenda_mql_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: agenda_mql_backend
+    restart: always
+    depends_on:
+      agenda_db:
+        condition: service_healthy
+    environment:
+      PORT: 4100
+      PGHOST: agenda_db
+      PGUSER: agenda_user
+      PGPASSWORD: agenda_pass123
+      PGDATABASE: agenda_mql_db
+      PGPORT: 5432
+    ports:
+      - "4100:4100"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: agenda_mql_frontend
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "3100:3100"
+
+volumes:
+  agenda_pgdata:

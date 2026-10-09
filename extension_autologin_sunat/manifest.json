@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "Agenda MQL - AutoLogin SUNAT & SUNAFIL",
+  "version": "1.1.0",
+  "description": "Inicio de sesión automático en el portal de SUNAT Clave SOL y SUNAFIL para clientes de Agenda MQL",
+  "icons": {
+    "48": "icon48.png"
+  },
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "*://*.sunat.gob.pe/*",
+    "*://*.sunafil.gob.pe/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "http://192.168.1.21/*"
+      ],
+      "js": ["content_mql.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "*://*.sunat.gob.pe/*",
+        "*://*.sunafil.gob.pe/*"
+      ],
+      "js": ["content_sunat.js"],
+      "all_frames": true,
+      "run_at": "document_end"
+    }
+  ]
+}

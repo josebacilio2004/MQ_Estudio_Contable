@@ -1,0 +1,453 @@
+import React, { useState, useEffect } from 'react';
+import Header from './components/Header';
+import StatsBar from './components/StatsBar';
+import AgendaList from './components/AgendaList';
+import KanbanBoard from './components/KanbanBoard';
+import LinksDirectory from './components/LinksDirectory';
+import ClientsView from './components/ClientsView';
+import SidebarMenu from './components/SidebarMenu';
+import AgendaModal from './components/AgendaModal';
+import ClientModal from './components/ClientModal';
+import DeviceShareModal from './components/DeviceShareModal';
+import { api } from './services/api';
+import { socket, getDeviceId } from './services/socket';
+import { Loader2 } from 'lucide-react';
+
+export default function App() {
+  const [items, setItems] = useState([]);
+  const [clients, setClients] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [isConnected, setIsConnected] = useState(socket.connected);
+  const [connectedCount, setConnectedCount] = useState(1);
+  const [recentlyUpdatedId, setRecentlyUpdatedId] = useState(null);
+
+  // Vistas y Menú
+  const [currentView, setCurrentView] = useState('agenda'); // 'agenda' | 'kanban' | 'clients' | 'links'
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Filtros y Búsqueda de Agenda
+  const [activeFilter, setActiveFilter] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Modales de Agenda
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState(null);
+
+  // Modales de Clientes
+  const [isClientModalOpen, setIsClientModalOpen] = useState(false);
+  const [editingClient, setEditingClient] = useState(null);
+
+  // Modal Compartir Dispositivos
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+
+  const myDeviceId = getDeviceId();
+
+  // 1. Cargar datos iniciales (Agenda y Clientes)
+  useEffect(() => {
+    loadAllData();
+  }, []);
+
+  const loadAllData = async () => {
+    try {
+      setLoading(true);
+      const [agendaData, clientsData] = await Promise.all([
+        api.getItems(),
+        api.getClients()
+      ]);
+      setItems(agendaData);
+      setClients(clientsData);
+    } catch (err) {
+      console.error('Error al cargar datos:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 2. Configurar eventos de WebSocket en Tiempo Real
+  useEffect(() => {
+    function onConnect() {
+      setIsConnected(true);
+    }
+
+    function onDisconnect() {
+      setIsConnected(false);
+    }
+
+    function onClientsCount(count) {
+      setConnectedCount(count);
+    }
+
+    // Eventos de Agenda
+    function onItemCreated(payload) {
+      const newItem = payload.item;
+      setItems((prev) => {
+        if (prev.some((item) => item.id === newItem.id)) return prev;
+        return [newItem, ...prev];
+      });
+      if (payload.originDeviceId !== myDeviceId) {
+        triggerRemoteHighlight(newItem.id);
+      }
+    }
+
+    function onItemUpdated(payload) {
+      const updated = payload.item;
+      setItems((prev) =>
+        prev.map((item) => (item.id === updated.id ? updated : item))
+      );
+      if (payload.originDeviceId !== myDeviceId) {
+        triggerRemoteHighlight(updated.id);
+      }
+    }
+
+    function onItemDeleted(payload) {
+      setItems((prev) => prev.filter((item) => item.id !== payload.id));
+    }
+
+    // Eventos de Clientes en Tiempo Real
+    function onClientCreated(payload) {
+      const newClient = payload.client;
+      setClients((prev) => {
+        if (prev.some((c) => c.id === newClient.id)) return prev;
+        return [newClient, ...prev];
+      });
+    }
+
+    function onClientUpdated(payload) {
+      const updated = payload.client;
+      setClients((prev) =>
+        prev.map((c) => (c.id === updated.id ? updated : c))
+      );
+    }
+
+    function onClientDeleted(payload) {
+      setClients((prev) => prev.filter((c) => c.id !== payload.id));
+    }
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.on('clients:count', onClientsCount);
+    socket.on('item:created', onItemCreated);
+    socket.on('item:updated', onItemUpdated);
+    socket.on('item:deleted', onItemDeleted);
+    socket.on('client:created', onClientCreated);
+    socket.on('client:updated', onClientUpdated);
+    socket.on('client:deleted', onClientDeleted);
+
+    return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.off('clients:count', onClientsCount);
+      socket.off('item:created', onItemCreated);
+      socket.off('item:updated', onItemUpdated);
+      socket.off('item:deleted', onItemDeleted);
+      socket.off('client:created', onClientCreated);
+      socket.off('client:updated', onClientUpdated);
+      socket.off('client:deleted', onClientDeleted);
+    };
+  }, [myDeviceId]);
+
+  const triggerRemoteHighlight = (id) => {
+    setRecentlyUpdatedId(id);
+    setTimeout(() => {
+      setRecentlyUpdatedId(null);
+    }, 2000);
+  };
+
+  // --- ACCIONES DE AGENDA ---
+  const handleToggleStatus = async (id, newCompletedState) => {
+    const newKanbanStatus = newCompletedState ? 'done' : 'todo';
+    setItems((prev) =>
+      prev.map((item) =>
+        item.id === id ? { ...item, is_completed: newCompletedState, kanban_status: newKanbanStatus } : item
+      )
+    );
+
+    try {
+      socket.emit('item:toggle_status', {
+        id,
+        is_completed: newCompletedState,
+        deviceId: myDeviceId
+      });
+      await api.toggleStatus(id, newCompletedState);
+    } catch (err) {
+      console.error('Error al actualizar estado:', err);
+      setItems((prev) =>
+        prev.map((item) =>
+          item.id === id ? { ...item, is_completed: !newCompletedState, kanban_status: !newCompletedState ? 'done' : 'todo' } : item
+        )
+      );
+    }
+  };
+
+  const handleMoveKanban = async (id, newColumnId) => {
+    const isDone = newColumnId === 'done';
+    const previousItem = items.find((i) => i.id === id);
+
+    setItems((prev) =>
+      prev.map((item) =>
+        item.id === id
+          ? { ...item, kanban_status: newColumnId, is_completed: isDone }
+          : item
+      )
+    );
+
+    try {
+      socket.emit('item:move_kanban', {
+        id,
+        kanban_status: newColumnId,
+        deviceId: myDeviceId
+      });
+      await api.moveKanban(id, newColumnId);
+    } catch (err) {
+      console.error('Error al mover en Kanban:', err);
+      if (previousItem) {
+        setItems((prev) =>
+          prev.map((item) => (item.id === id ? previousItem : item))
+        );
+      }
+    }
+  };
+
+  const handleSaveItem = async (formData) => {
+    try {
+      if (editingItem) {
+        await api.updateItem(editingItem.id, formData);
+      } else {
+        await api.createItem(formData);
+      }
+      setIsModalOpen(false);
+      setEditingItem(null);
+    } catch (err) {
+      console.error('Error al guardar registro:', err);
+      alert('Error al guardar el registro en la agenda');
+    }
+  };
+
+  const handleDeleteItem = async (id) => {
+    if (!window.confirm('¿Seguro que deseas eliminar este registro?')) return;
+    try {
+      await api.deleteItem(id);
+    } catch (err) {
+      console.error('Error al eliminar:', err);
+      alert('No se pudo eliminar el registro');
+    }
+  };
+
+  // --- ACCIONES DE CLIENTES ---
+  const handleSaveClient = async (formData) => {
+    try {
+      if (editingClient) {
+        await api.updateClient(editingClient.id, formData);
+      } else {
+        await api.createClient(formData);
+      }
+      setIsClientModalOpen(false);
+      setEditingClient(null);
+    } catch (err) {
+      console.error('Error al guardar cliente:', err);
+      alert(err.message || 'Error al guardar el cliente.');
+    }
+  };
+
+  const handleDeleteClient = async (id) => {
+    if (!window.confirm('¿Seguro que deseas eliminar este cliente? Se borrarán sus accesos y datos.')) return;
+    try {
+      await api.deleteClient(id);
+    } catch (err) {
+      console.error('Error al eliminar cliente:', err);
+      alert('No se pudo eliminar el cliente.');
+    }
+  };
+
+  const handleClearNotification = async (id) => {
+    try {
+      await api.updateClientNotifications(id, {
+        notificaciones_pendientes: 0,
+        origen_notificacion: null,
+        detalle_notificacion: null
+      });
+    } catch (err) {
+      console.error('Error al resolver notificación:', err);
+    }
+  };
+
+  // Métricas calculadas para el menú
+  const totalItems = items.length;
+  const completedItems = items.filter((i) => i.is_completed || i.kanban_status === 'done').length;
+  const pendingItems = totalItems - completedItems;
+  const linkItemsCount = items.filter((i) => !!i.external_url).length;
+  const totalClientsCount = clients.length;
+  const clientAlertsCount = clients.filter((c) => (c.notificaciones_pendientes || 0) > 0).length;
+
+  // Filtrado de elementos para vista de lista de agenda
+  const filteredItems = items.filter((item) => {
+    if (activeFilter === 'pending' && (item.is_completed || item.kanban_status === 'done')) return false;
+    if (activeFilter === 'completed' && !(item.is_completed || item.kanban_status === 'done')) return false;
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const matchTitle = item.title?.toLowerCase().includes(q);
+      const matchDesc = item.description?.toLowerCase().includes(q);
+      const matchUrl = item.external_url?.toLowerCase().includes(q);
+      const matchCat = item.category?.toLowerCase().includes(q);
+      return matchTitle || matchDesc || matchUrl || matchCat;
+    }
+    return true;
+  });
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex font-sans selection:bg-blue-600 selection:text-white">
+      {/* Menú Lateral y Barra de Navegación Móvil */}
+      <SidebarMenu
+        currentView={currentView}
+        setCurrentView={setCurrentView}
+        isMobileMenuOpen={isMobileMenuOpen}
+        setIsMobileMenuOpen={setIsMobileMenuOpen}
+        onOpenShareModal={() => setIsShareModalOpen(true)}
+        connectedCount={connectedCount}
+        itemsCount={{
+          total: totalItems,
+          pending: pendingItems,
+          completed: completedItems,
+          links: linkItemsCount
+        }}
+        clientsCount={{
+          total: totalClientsCount,
+          alerts: clientAlertsCount
+        }}
+      />
+
+      {/* Contenedor Principal (con offset para sidebar en desktop y padding inferior para móvil) */}
+      <div className="flex-1 flex flex-col min-w-0 md:pl-72">
+        {/* Cabecera */}
+        <Header
+          isConnected={isConnected}
+          connectedCount={connectedCount}
+          onOpenCreateModal={() => {
+            if (currentView === 'clients') {
+              setEditingClient(null);
+              setIsClientModalOpen(true);
+            } else {
+              setEditingItem(null);
+              setIsModalOpen(true);
+            }
+          }}
+          onOpenShareModal={() => setIsShareModalOpen(true)}
+          onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
+        />
+
+        {/* Área de Vistas Dinámicas */}
+        <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-5 sm:py-7 pb-24 md:pb-10">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-24 text-slate-400 gap-3">
+              <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+              <p className="text-sm font-medium">Sincronizando sistema en vivo...</p>
+            </div>
+          ) : (
+            <>
+              {/* Vista 1: Agenda */}
+              {currentView === 'agenda' && (
+                <>
+                  <StatsBar
+                    items={items}
+                    activeFilter={activeFilter}
+                    setActiveFilter={setActiveFilter}
+                    searchQuery={searchQuery}
+                    setSearchQuery={setSearchQuery}
+                  />
+                  <AgendaList
+                    items={filteredItems}
+                    recentlyUpdatedId={recentlyUpdatedId}
+                    onToggleStatus={handleToggleStatus}
+                    onEdit={(item) => {
+                      setEditingItem(item);
+                      setIsModalOpen(true);
+                    }}
+                    onDelete={handleDeleteItem}
+                    onOpenCreateModal={() => {
+                      setEditingItem(null);
+                      setIsModalOpen(true);
+                    }}
+                  />
+                </>
+              )}
+
+              {/* Vista 2: Kanban */}
+              {currentView === 'kanban' && (
+                <KanbanBoard
+                  items={items}
+                  recentlyUpdatedId={recentlyUpdatedId}
+                  onMoveKanban={handleMoveKanban}
+                  onEdit={(item) => {
+                    setEditingItem(item);
+                    setIsModalOpen(true);
+                  }}
+                  onDelete={handleDeleteItem}
+                  onOpenCreateModal={() => {
+                    setEditingItem(null);
+                    setIsModalOpen(true);
+                  }}
+                />
+              )}
+
+              {/* Vista 3: Gestión de Clientes RUC */}
+              {currentView === 'clients' && (
+                <ClientsView
+                  clients={clients}
+                  onOpenCreateClient={() => {
+                    setEditingClient(null);
+                    setIsClientModalOpen(true);
+                  }}
+                  onEditClient={(client) => {
+                    setEditingClient(client);
+                    setIsClientModalOpen(true);
+                  }}
+                  onDeleteClient={handleDeleteClient}
+                  onClearNotification={handleClearNotification}
+                />
+              )}
+
+              {/* Vista 4: Directorio de Enlaces */}
+              {currentView === 'links' && (
+                <LinksDirectory
+                  items={items}
+                  onEdit={(item) => {
+                    setEditingItem(item);
+                    setIsModalOpen(true);
+                  }}
+                />
+              )}
+            </>
+          )}
+        </main>
+
+        {/* Footer */}
+        <footer className="border-t border-slate-900 py-3.5 px-6 text-center text-xs text-slate-500 hidden md:block">
+          Agenda MQL • Gestión de Clientes, SUNAT Clave SOL y Sincronización en Tiempo Real Multi-dispositivo
+        </footer>
+      </div>
+
+      {/* Modales de Agenda */}
+      <AgendaModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSave={handleSaveItem}
+        editingItem={editingItem}
+      />
+
+      {/* Modales de Clientes */}
+      <ClientModal
+        isOpen={isClientModalOpen}
+        onClose={() => setIsClientModalOpen(false)}
+        onSave={handleSaveClient}
+        editingClient={editingClient}
+      />
+
+      {/* Modal Conectar Celular */}
+      <DeviceShareModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+      />
+    </div>
+  );
+}
