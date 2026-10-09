@@ -5,7 +5,10 @@ const getBaseUrl = () => {
     return `${import.meta.env.VITE_API_URL}/api`;
   }
   const hostname = window.location.hostname || 'localhost';
-  return `http://${hostname}:4100/api`;
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || hostname.startsWith('10.')) {
+    return `http://${hostname}:4100/api`;
+  }
+  return 'https://agenda-mql-backend.onrender.com/api';
 };
 
 export const api = {
