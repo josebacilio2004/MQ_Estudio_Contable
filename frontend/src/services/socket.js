@@ -1,7 +1,5 @@
 import { io } from 'socket.io-client';
 
-// Detección automática del host: si se accede desde celular (ej. 192.168.1.21),
-// el socket apunta a la misma IP en el puerto 4100 sin desconfigurarse.
 const getBackendUrl = () => {
   if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL;
@@ -28,7 +26,19 @@ export const getDeviceId = () => {
 export const socket = io(getBackendUrl(), {
   autoConnect: true,
   reconnection: true,
-  reconnectionAttempts: 20,
+  reconnectionAttempts: 30,
   reconnectionDelay: 1000,
   transports: ['websocket', 'polling']
 });
+
+export const joinUserRoom = (userId) => {
+  if (userId) {
+    if (socket.connected) {
+      socket.emit('user:join', userId);
+    } else {
+      socket.once('connect', () => {
+        socket.emit('user:join', userId);
+      });
+    }
+  }
+};

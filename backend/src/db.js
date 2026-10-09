@@ -32,12 +32,32 @@ async function waitForDb(retries = 15, delay = 2000) {
   throw new Error('❌ No se pudo conectar a la base de datos PostgreSQL.');
 }
 
+const { hashPassword } = require('./auth');
+
 async function initDb() {
   await waitForDb();
 
+  // 1. Tabla de Usuarios (Multi-tenant)
+  const createUsersTableQuery = `
+    CREATE TABLE IF NOT EXISTS users (
+      id VARCHAR(64) PRIMARY KEY,
+      username VARCHAR(100) UNIQUE NOT NULL,
+      email VARCHAR(150),
+      password_hash VARCHAR(255) NOT NULL,
+      full_name VARCHAR(150),
+      role VARCHAR(50) DEFAULT 'contador',
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+  `;
+  await pool.query(createUsersTableQuery);
+
+  // 2. Tabla de Agenda
   const createTableQuery = `
     CREATE TABLE IF NOT EXISTS agenda_items (
       id VARCHAR(64) PRIMARY KEY,
+      user_id VARCHAR(64),
       title VARCHAR(255) NOT NULL,
       description TEXT,
       event_date VARCHAR(30) NOT NULL,
@@ -54,10 +74,9 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_agenda_date ON agenda_items(event_date);
     CREATE INDEX IF NOT EXISTS idx_agenda_updated ON agenda_items(updated_at);
   `;
-
   await pool.query(createTableQuery);
 
-  // Asegurar migración de columna kanban_status si la tabla ya existía
+  // 3. Migración de columnas user_id y kanban_status
   await pool.query(`
     DO $$ 
     BEGIN 
@@ -67,11 +86,42 @@ async function initDb() {
       ) THEN 
         ALTER TABLE agenda_items ADD COLUMN kanban_status VARCHAR(30) DEFAULT 'todo';
       END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name='agenda_items' AND column_name='user_id'
+      ) THEN 
+        ALTER TABLE agenda_items ADD COLUMN user_id VARCHAR(64);
+      END IF;
     END $$;
+    CREATE INDEX IF NOT EXISTS idx_agenda_user ON agenda_items(user_id);
   `);
 
-  // Verificar si hay registros; si está vacía, sembrar ejemplos
-  const checkCount = await pool.query('SELECT COUNT(*) FROM agenda_items');
+  // 4. Sembrado de Usuario Administrador / Demo inicial
+  const defaultUserId = 'usr-mql-admin';
+  const checkUserCount = await pool.query('SELECT COUNT(*) FROM users');
+  if (parseInt(checkUserCount.rows[0].count, 10) === 0) {
+    console.log('🌱 Creando usuario principal inicial (MQ Estudio Contable)...');
+    await pool.query(
+      `INSERT INTO users (id, username, email, password_hash, full_name, role)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        defaultUserId,
+        'mqcontable',
+        'contacto@mqcontable.pe',
+        hashPassword('Admin2026*'),
+        'MQ Estudio Contable',
+        'admin'
+      ]
+    );
+    console.log('✅ Usuario inicial creado: usuario="mqcontable" / clave="Admin2026*"');
+  }
+
+  // Asignar items existentes sin user_id al usuario por defecto
+  await pool.query(`UPDATE agenda_items SET user_id = $1 WHERE user_id IS NULL`, [defaultUserId]);
+
+  // Verificar si hay registros de agenda; si está vacía, sembrar ejemplos
+  const checkCount = await pool.query('SELECT COUNT(*) FROM agenda_items WHERE user_id = $1', [defaultUserId]);
   if (parseInt(checkCount.rows[0].count, 10) === 0) {
     console.log('🌱 Sembrando datos iniciales de demostración...');
     const seedQueries = [
@@ -123,11 +173,12 @@ async function initDb() {
     console.log('✅ Datos de demostración insertados.');
   }
 
-  // Tabla de Clientes con RUC y credenciales de SUNAT Clave SOL
+  // Tabla de Clientes con RUC y credenciales de SUNAT Clave SOL (vinculada a user_id)
   const createClientsTableQuery = `
     CREATE TABLE IF NOT EXISTS clients (
       id VARCHAR(64) PRIMARY KEY,
-      ruc VARCHAR(11) UNIQUE NOT NULL,
+      user_id VARCHAR(64),
+      ruc VARCHAR(11) NOT NULL,
       razon_social VARCHAR(255) NOT NULL,
       nombre_comercial VARCHAR(255),
       telefono VARCHAR(30),
@@ -146,16 +197,33 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_clients_ruc ON clients(ruc);
     CREATE INDEX IF NOT EXISTS idx_clients_razon ON clients(razon_social);
   `;
-
   await pool.query(createClientsTableQuery);
 
-  // Verificar si hay clientes registrados; si está vacía, sembrar ejemplos
-  const checkClientsCount = await pool.query('SELECT COUNT(*) FROM clients');
+  // Asegurar migración de user_id en clients
+  await pool.query(`
+    DO $$ 
+    BEGIN 
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name='clients' AND column_name='user_id'
+      ) THEN 
+        ALTER TABLE clients ADD COLUMN user_id VARCHAR(64);
+      END IF;
+    END $$;
+    CREATE INDEX IF NOT EXISTS idx_clients_user ON clients(user_id);
+  `);
+
+  // Asignar clientes existentes al usuario por defecto si no tienen user_id
+  await pool.query(`UPDATE clients SET user_id = $1 WHERE user_id IS NULL`, [defaultUserId]);
+
+  // Verificar si hay clientes registrados para este usuario; si está vacía, sembrar ejemplos
+  const checkClientsCount = await pool.query('SELECT COUNT(*) FROM clients WHERE user_id = $1', [defaultUserId]);
   if (parseInt(checkClientsCount.rows[0].count, 10) === 0) {
     console.log('🌱 Sembrando clientes iniciales de demostración...');
     const seedClients = [
       {
         id: 'client-1',
+        user_id: defaultUserId,
         ruc: '20601234567',
         razon_social: 'SERVICIOS Y SOLUCIONES MQL S.A.C.',
         nombre_comercial: 'MQL Solutions',
@@ -172,6 +240,7 @@ async function initDb() {
       },
       {
         id: 'client-2',
+        user_id: defaultUserId,
         ruc: '20559876543',
         razon_social: 'IMPORTACIONES & LOGISTICA DEL SUR E.I.R.L.',
         nombre_comercial: 'Logística del Sur',
@@ -188,6 +257,7 @@ async function initDb() {
       },
       {
         id: 'client-3',
+        user_id: defaultUserId,
         ruc: '10457896541',
         razon_social: 'FLORES CASTILLO CARLOS DANIEL',
         nombre_comercial: 'Consultoría Flores',
@@ -206,9 +276,9 @@ async function initDb() {
 
     for (const c of seedClients) {
       await pool.query(
-        `INSERT INTO clients (id, ruc, razon_social, nombre_comercial, telefono, email, sunat_usuario, sunat_clave, estado_contribuyente, condicion_domicilio, notificaciones_pendientes, origen_notificacion, detalle_notificacion, notas)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-        [c.id, c.ruc, c.razon_social, c.nombre_comercial, c.telefono, c.email, c.sunat_usuario, c.sunat_clave, c.estado_contribuyente, c.condicion_domicilio, c.notificaciones_pendientes, c.origen_notificacion, c.detalle_notificacion, c.notas]
+        `INSERT INTO clients (id, user_id, ruc, razon_social, nombre_comercial, telefono, email, sunat_usuario, sunat_clave, estado_contribuyente, condicion_domicilio, notificaciones_pendientes, origen_notificacion, detalle_notificacion, notas)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+        [c.id, c.user_id, c.ruc, c.razon_social, c.nombre_comercial, c.telefono, c.email, c.sunat_usuario, c.sunat_clave, c.estado_contribuyente, c.condicion_domicilio, c.notificaciones_pendientes, c.origen_notificacion, c.detalle_notificacion, c.notas]
       );
     }
     console.log('✅ Clientes de demostración insertados.');

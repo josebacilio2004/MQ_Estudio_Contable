@@ -3,19 +3,22 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const { pool, initDb } = require('./db');
+const { hashPassword, verifyPassword, generateToken, authMiddleware } = require('./auth');
+const { checkClientBuzon } = require('./scraper');
 
 const app = express();
 const server = http.createServer(app);
 
-// Configuración CORS permisiva para pruebas en localhost e IP local
+// Configuración CORS
 app.use(cors({
   origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-access-token', 'x-user-id']
 }));
 
 app.use(express.json());
 
-// Servidor Socket.io para sincronización bidireccional en tiempo real
+// Servidor Socket.io para sincronización en tiempo real
 const io = new Server(server, {
   cors: {
     origin: '*',
@@ -27,28 +30,51 @@ let connectedClientsCount = 0;
 
 io.on('connection', (socket) => {
   connectedClientsCount++;
-  console.log(`🔌 Cliente conectado: ${socket.id} (Total activos: ${connectedClientsCount})`);
+  console.log(`🔌 Dispositivo conectado: ${socket.id} (Total activos: ${connectedClientsCount})`);
   io.emit('clients:count', connectedClientsCount);
 
-  // Escuchar evento directo desde socket para máxima reactividad
+  // Unirse a sala de sincronización privada del usuario
+  socket.on('user:join', (userId) => {
+    if (userId) {
+      socket.join(`user:${userId}`);
+      socket.userId = userId;
+      console.log(`👤 Socket ${socket.id} suscrito a sala de usuario: user:${userId}`);
+    }
+  });
+
+  // Movimiento rápido de estado vía WebSocket
   socket.on('item:toggle_status', async (data) => {
     try {
-      const { id, is_completed, deviceId } = data;
+      const { id, is_completed, deviceId, userId } = data;
+      const targetUser = userId || socket.userId;
       const kanban_status = is_completed ? 'done' : 'todo';
-      const res = await pool.query(
-        `UPDATE agenda_items 
-         SET is_completed = $1, kanban_status = $2, updated_at = NOW() 
-         WHERE id = $3 
-         RETURNING *`,
-        [is_completed, kanban_status, id]
-      );
+
+      let query = `
+        UPDATE agenda_items 
+        SET is_completed = $1, kanban_status = $2, updated_at = NOW() 
+        WHERE id = $3
+      `;
+      const values = [is_completed, kanban_status, id];
+
+      if (targetUser) {
+        query += ` AND user_id = $4`;
+        values.push(targetUser);
+      }
+      query += ` RETURNING *`;
+
+      const res = await pool.query(query, values);
       if (res.rows.length > 0) {
         const updated = res.rows[0];
-        io.emit('item:updated', {
+        const payload = {
           item: updated,
           originDeviceId: deviceId,
           timestamp: new Date().toISOString()
-        });
+        };
+        if (updated.user_id) {
+          io.to(`user:${updated.user_id}`).emit('item:updated', payload);
+        } else {
+          io.emit('item:updated', payload);
+        }
       }
     } catch (err) {
       console.error('Error procesando item:toggle_status:', err);
@@ -58,22 +84,36 @@ io.on('connection', (socket) => {
   // Movimiento directo en Tablero Kanban vía WebSocket
   socket.on('item:move_kanban', async (data) => {
     try {
-      const { id, kanban_status, deviceId } = data;
+      const { id, kanban_status, deviceId, userId } = data;
+      const targetUser = userId || socket.userId;
       const is_completed = kanban_status === 'done';
-      const res = await pool.query(
-        `UPDATE agenda_items 
-         SET kanban_status = $1, is_completed = $2, updated_at = NOW() 
-         WHERE id = $3 
-         RETURNING *`,
-        [kanban_status, is_completed, id]
-      );
+
+      let query = `
+        UPDATE agenda_items 
+        SET kanban_status = $1, is_completed = $2, updated_at = NOW() 
+        WHERE id = $3
+      `;
+      const values = [kanban_status, is_completed, id];
+
+      if (targetUser) {
+        query += ` AND user_id = $4`;
+        values.push(targetUser);
+      }
+      query += ` RETURNING *`;
+
+      const res = await pool.query(query, values);
       if (res.rows.length > 0) {
         const updated = res.rows[0];
-        io.emit('item:updated', {
+        const payload = {
           item: updated,
           originDeviceId: deviceId,
           timestamp: new Date().toISOString()
-        });
+        };
+        if (updated.user_id) {
+          io.to(`user:${updated.user_id}`).emit('item:updated', payload);
+        } else {
+          io.emit('item:updated', payload);
+        }
       }
     } catch (err) {
       console.error('Error procesando item:move_kanban:', err);
@@ -82,25 +122,153 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     connectedClientsCount = Math.max(0, connectedClientsCount - 1);
-    console.log(`🔌 Cliente desconectado: ${socket.id} (Total activos: ${connectedClientsCount})`);
+    console.log(`🔌 Dispositivo desconectado: ${socket.id} (Total activos: ${connectedClientsCount})`);
     io.emit('clients:count', connectedClientsCount);
   });
 });
 
-// --- REST API ENDPOINTS ---
+// Helper para emitir a la sala del usuario y con fallback
+function broadcastToUser(userId, event, payload) {
+  if (userId) {
+    io.to(`user:${userId}`).emit(event, payload);
+  }
+  io.emit(event, payload);
+}
+
+// ==========================================
+// --- RUTAS DE AUTENTICACIÓN Y USUARIOS ---
+// ==========================================
 
 // Salud del servidor
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString(), clients: connectedClientsCount });
 });
 
-// Listar todos los elementos de la agenda
-app.get('/api/items', async (req, res) => {
+// Registro de nuevo usuario
+app.post('/api/auth/register', async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT * FROM agenda_items 
-      ORDER BY event_date ASC, event_time ASC, created_at ASC
-    `);
+    const { username, password, full_name, email } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ error: 'El usuario y la contraseña son obligatorios.' });
+    }
+    if (username.trim().length < 3) {
+      return res.status(400).json({ error: 'El usuario debe tener al menos 3 caracteres.' });
+    }
+    if (password.length < 4) {
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 4 caracteres.' });
+    }
+
+    const cleanUsername = username.trim().toLowerCase();
+
+    // Comprobar si ya existe
+    const exists = await pool.query('SELECT id FROM users WHERE LOWER(username) = $1', [cleanUsername]);
+    if (exists.rows.length > 0) {
+      return res.status(409).json({ error: 'Este nombre de usuario ya está registrado. Por favor elija otro.' });
+    }
+
+    const userId = 'usr-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+    const password_hash = hashPassword(password);
+    const role = 'contador';
+
+    const insertRes = await pool.query(
+      `INSERT INTO users (id, username, email, password_hash, full_name, role)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, username, email, full_name, role, created_at`,
+      [userId, cleanUsername, email ? email.trim() : null, password_hash, full_name ? full_name.trim() : cleanUsername, role]
+    );
+
+    const newUser = insertRes.rows[0];
+    const token = generateToken(newUser);
+
+    res.status(201).json({
+      token,
+      user: newUser
+    });
+  } catch (err) {
+    console.error('Error en registro:', err);
+    res.status(500).json({ error: 'Error al registrar nuevo usuario.' });
+  }
+});
+
+// Iniciar sesión
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Debe ingresar usuario y contraseña.' });
+    }
+
+    const cleanInput = username.trim().toLowerCase();
+
+    const userRes = await pool.query(
+      `SELECT * FROM users 
+       WHERE LOWER(username) = $1 OR (email IS NOT NULL AND LOWER(email) = $1)`,
+      [cleanInput]
+    );
+
+    if (userRes.rows.length === 0) {
+      return res.status(401).json({ error: 'Usuario o contraseña incorrectos.' });
+    }
+
+    const user = userRes.rows[0];
+    const isValid = verifyPassword(password, user.password_hash);
+
+    if (!isValid) {
+      return res.status(401).json({ error: 'Usuario o contraseña incorrectos.' });
+    }
+
+    const safeUser = {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      full_name: user.full_name,
+      role: user.role
+    };
+
+    const token = generateToken(safeUser);
+
+    res.json({
+      token,
+      user: safeUser
+    });
+  } catch (err) {
+    console.error('Error en login:', err);
+    res.status(500).json({ error: 'Error al iniciar sesión.' });
+  }
+});
+
+// Obtener datos del usuario logueado
+app.get('/api/auth/me', authMiddleware, async (req, res) => {
+  try {
+    const userRes = await pool.query(
+      'SELECT id, username, email, full_name, role, created_at FROM users WHERE id = $1',
+      [req.userId]
+    );
+    if (userRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+    res.json({ user: userRes.rows[0] });
+  } catch (err) {
+    console.error('Error en auth/me:', err);
+    res.status(500).json({ error: 'Error al obtener datos del usuario.' });
+  }
+});
+
+// ==========================================
+// --- CRUD DE AGENDA Y KANBAN (POR USUARIO)
+// ==========================================
+
+// Listar elementos de la agenda del usuario autenticado
+app.get('/api/items', authMiddleware, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT * FROM agenda_items 
+       WHERE user_id = $1 OR user_id IS NULL
+       ORDER BY event_date ASC, event_time ASC, created_at ASC`,
+      [req.userId]
+    );
     res.json(result.rows);
   } catch (err) {
     console.error('Error al obtener elementos:', err);
@@ -108,8 +276,8 @@ app.get('/api/items', async (req, res) => {
   }
 });
 
-// Crear nuevo elemento en la agenda
-app.post('/api/items', async (req, res) => {
+// Crear nuevo elemento en la agenda vinculado al usuario
+app.post('/api/items', authMiddleware, async (req, res) => {
   try {
     const {
       title,
@@ -131,13 +299,14 @@ app.post('/api/items', async (req, res) => {
     const kanban_status = req.body.kanban_status || 'todo';
 
     const query = `
-      INSERT INTO agenda_items (id, title, description, event_date, event_time, category, color_tag, is_completed, kanban_status, external_url, url_label)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      INSERT INTO agenda_items (id, user_id, title, description, event_date, event_time, category, color_tag, is_completed, kanban_status, external_url, url_label)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING *
     `;
 
     const values = [
       id,
+      req.userId,
       title.trim(),
       description ? description.trim() : '',
       event_date,
@@ -153,8 +322,8 @@ app.post('/api/items', async (req, res) => {
     const result = await pool.query(query, values);
     const createdItem = result.rows[0];
 
-    // Transmisión inmediata a todos los dispositivos conectados
-    io.emit('item:created', {
+    // Transmisión inmediata a los dispositivos del usuario
+    broadcastToUser(req.userId, 'item:created', {
       item: createdItem,
       originDeviceId: deviceId
     });
@@ -166,8 +335,8 @@ app.post('/api/items', async (req, res) => {
   }
 });
 
-// Modificar/Marcar estado completado de forma rápida
-app.patch('/api/items/:id/toggle', async (req, res) => {
+// Toggle estado completado
+app.patch('/api/items/:id/toggle', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const { is_completed, deviceId } = req.body;
@@ -176,9 +345,9 @@ app.patch('/api/items/:id/toggle', async (req, res) => {
     const result = await pool.query(
       `UPDATE agenda_items 
        SET is_completed = $1, kanban_status = $2, updated_at = NOW() 
-       WHERE id = $3 
+       WHERE id = $3 AND (user_id = $4 OR user_id IS NULL)
        RETURNING *`,
-      [is_completed, kanban_status, id]
+      [is_completed, kanban_status, id, req.userId]
     );
 
     if (result.rows.length === 0) {
@@ -186,8 +355,7 @@ app.patch('/api/items/:id/toggle', async (req, res) => {
     }
 
     const updatedItem = result.rows[0];
-
-    io.emit('item:updated', {
+    broadcastToUser(req.userId, 'item:updated', {
       item: updatedItem,
       originDeviceId: deviceId,
       timestamp: new Date().toISOString()
@@ -200,8 +368,8 @@ app.patch('/api/items/:id/toggle', async (req, res) => {
   }
 });
 
-// Desplazamiento en Tablero Kanban
-app.patch('/api/items/:id/kanban', async (req, res) => {
+// Desplazamiento en Kanban
+app.patch('/api/items/:id/kanban', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const { kanban_status, deviceId } = req.body;
@@ -210,9 +378,9 @@ app.patch('/api/items/:id/kanban', async (req, res) => {
     const result = await pool.query(
       `UPDATE agenda_items 
        SET kanban_status = $1, is_completed = $2, updated_at = NOW() 
-       WHERE id = $3 
+       WHERE id = $3 AND (user_id = $4 OR user_id IS NULL)
        RETURNING *`,
-      [kanban_status, is_completed, id]
+      [kanban_status, is_completed, id, req.userId]
     );
 
     if (result.rows.length === 0) {
@@ -220,8 +388,7 @@ app.patch('/api/items/:id/kanban', async (req, res) => {
     }
 
     const updatedItem = result.rows[0];
-
-    io.emit('item:updated', {
+    broadcastToUser(req.userId, 'item:updated', {
       item: updatedItem,
       originDeviceId: deviceId,
       timestamp: new Date().toISOString()
@@ -235,7 +402,7 @@ app.patch('/api/items/:id/kanban', async (req, res) => {
 });
 
 // Actualizar elemento completo
-app.put('/api/items/:id', async (req, res) => {
+app.put('/api/items/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -258,7 +425,7 @@ app.put('/api/items/:id', async (req, res) => {
       SET title = $1, description = $2, event_date = $3, event_time = $4,
           category = $5, color_tag = $6, is_completed = $7, kanban_status = $8,
           external_url = $9, url_label = $10, updated_at = NOW()
-      WHERE id = $11
+      WHERE id = $11 AND (user_id = $12 OR user_id IS NULL)
       RETURNING *
     `;
 
@@ -273,7 +440,8 @@ app.put('/api/items/:id', async (req, res) => {
       kanban_status,
       external_url,
       url_label,
-      id
+      id,
+      req.userId
     ];
 
     const result = await pool.query(query, values);
@@ -282,7 +450,7 @@ app.put('/api/items/:id', async (req, res) => {
     }
 
     const updatedItem = result.rows[0];
-    io.emit('item:updated', {
+    broadcastToUser(req.userId, 'item:updated', {
       item: updatedItem,
       originDeviceId: deviceId
     });
@@ -294,19 +462,21 @@ app.put('/api/items/:id', async (req, res) => {
   }
 });
 
-// Eliminar elemento de la agenda
-app.delete('/api/items/:id', async (req, res) => {
+// Eliminar elemento
+app.delete('/api/items/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const { deviceId } = req.query;
 
-    const result = await pool.query('DELETE FROM agenda_items WHERE id = $1 RETURNING id', [id]);
+    const result = await pool.query(
+      'DELETE FROM agenda_items WHERE id = $1 AND (user_id = $2 OR user_id IS NULL) RETURNING id',
+      [id, req.userId]
+    );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Elemento no encontrado' });
     }
 
-    // Difundir eliminación a todos los dispositivos
-    io.emit('item:deleted', {
+    broadcastToUser(req.userId, 'item:deleted', {
       id,
       originDeviceId: deviceId
     });
@@ -319,16 +489,18 @@ app.delete('/api/items/:id', async (req, res) => {
 });
 
 // ==========================================
-// --- CRUD DE GESTIÓN DE CLIENTES (RUC) ---
+// --- CRUD DE CLIENTES RUC (POR USUARIO) ---
 // ==========================================
 
-// Listar todos los clientes
-app.get('/api/clients', async (req, res) => {
+// Listar clientes del usuario autenticado
+app.get('/api/clients', authMiddleware, async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT * FROM clients 
-      ORDER BY notificaciones_pendientes DESC, razon_social ASC
-    `);
+    const result = await pool.query(
+      `SELECT * FROM clients 
+       WHERE user_id = $1 OR user_id IS NULL
+       ORDER BY notificaciones_pendientes DESC, razon_social ASC`,
+      [req.userId]
+    );
     res.json(result.rows);
   } catch (err) {
     console.error('Error al consultar clientes:', err);
@@ -336,8 +508,8 @@ app.get('/api/clients', async (req, res) => {
   }
 });
 
-// Registrar nuevo cliente con RUC y credenciales de SUNAT
-app.post('/api/clients', async (req, res) => {
+// Registrar nuevo cliente vinculado al usuario
+app.post('/api/clients', authMiddleware, async (req, res) => {
   try {
     const {
       ruc,
@@ -368,16 +540,17 @@ app.post('/api/clients', async (req, res) => {
 
     const query = `
       INSERT INTO clients (
-        id, ruc, razon_social, nombre_comercial, telefono, email,
+        id, user_id, ruc, razon_social, nombre_comercial, telefono, email,
         sunat_usuario, sunat_clave, estado_contribuyente, condicion_domicilio,
         notificaciones_pendientes, origen_notificacion, detalle_notificacion, notas
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       RETURNING *
     `;
 
     const values = [
       id,
+      req.userId,
       ruc.trim(),
       razon_social.trim(),
       nombre_comercial ? nombre_comercial.trim() : null,
@@ -396,23 +569,20 @@ app.post('/api/clients', async (req, res) => {
     const result = await pool.query(query, values);
     const newClient = result.rows[0];
 
-    io.emit('client:created', {
+    broadcastToUser(req.userId, 'client:created', {
       client: newClient,
       originDeviceId: deviceId
     });
 
     res.status(201).json(newClient);
   } catch (err) {
-    if (err.code === '23505') {
-      return res.status(409).json({ error: 'Ya existe un cliente registrado con ese número de RUC.' });
-    }
     console.error('Error al registrar cliente:', err);
     res.status(500).json({ error: 'Error al registrar cliente.' });
   }
 });
 
 // Actualizar datos del cliente
-app.put('/api/clients/:id', async (req, res) => {
+app.put('/api/clients/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -438,7 +608,7 @@ app.put('/api/clients/:id', async (req, res) => {
           email = $5, sunat_usuario = $6, sunat_clave = $7, estado_contribuyente = $8,
           condicion_domicilio = $9, notificaciones_pendientes = $10, origen_notificacion = $11,
           detalle_notificacion = $12, notas = $13, updated_at = NOW()
-      WHERE id = $14
+      WHERE id = $14 AND (user_id = $15 OR user_id IS NULL)
       RETURNING *
     `;
 
@@ -456,7 +626,8 @@ app.put('/api/clients/:id', async (req, res) => {
       origen_notificacion || null,
       detalle_notificacion || null,
       notas || null,
-      id
+      id,
+      req.userId
     ];
 
     const result = await pool.query(query, values);
@@ -465,7 +636,7 @@ app.put('/api/clients/:id', async (req, res) => {
     }
 
     const updatedClient = result.rows[0];
-    io.emit('client:updated', {
+    broadcastToUser(req.userId, 'client:updated', {
       client: updatedClient,
       originDeviceId: deviceId
     });
@@ -478,17 +649,20 @@ app.put('/api/clients/:id', async (req, res) => {
 });
 
 // Eliminar cliente
-app.delete('/api/clients/:id', async (req, res) => {
+app.delete('/api/clients/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const { deviceId } = req.query;
 
-    const result = await pool.query('DELETE FROM clients WHERE id = $1 RETURNING id', [id]);
+    const result = await pool.query(
+      'DELETE FROM clients WHERE id = $1 AND (user_id = $2 OR user_id IS NULL) RETURNING id',
+      [id, req.userId]
+    );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Cliente no encontrado' });
     }
 
-    io.emit('client:deleted', {
+    broadcastToUser(req.userId, 'client:deleted', {
       id,
       originDeviceId: deviceId
     });
@@ -501,7 +675,7 @@ app.delete('/api/clients/:id', async (req, res) => {
 });
 
 // Marcar/Actualizar notificaciones de bandejas (SUNAT / SUNAFIL)
-app.patch('/api/clients/:id/notifications', async (req, res) => {
+app.patch('/api/clients/:id/notifications', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const { notificaciones_pendientes, origen_notificacion, detalle_notificacion, deviceId } = req.body;
@@ -509,9 +683,9 @@ app.patch('/api/clients/:id/notifications', async (req, res) => {
     const result = await pool.query(
       `UPDATE clients
        SET notificaciones_pendientes = $1, origen_notificacion = $2, detalle_notificacion = $3, updated_at = NOW()
-       WHERE id = $4
+       WHERE id = $4 AND (user_id = $5 OR user_id IS NULL)
        RETURNING *`,
-      [parseInt(notificaciones_pendientes || 0, 10), origen_notificacion, detalle_notificacion, id]
+      [parseInt(notificaciones_pendientes || 0, 10), origen_notificacion, detalle_notificacion, id, req.userId]
     );
 
     if (result.rows.length === 0) {
@@ -519,7 +693,7 @@ app.patch('/api/clients/:id/notifications', async (req, res) => {
     }
 
     const updatedClient = result.rows[0];
-    io.emit('client:updated', {
+    broadcastToUser(req.userId, 'client:updated', {
       client: updatedClient,
       originDeviceId: deviceId
     });
@@ -535,15 +709,16 @@ app.patch('/api/clients/:id/notifications', async (req, res) => {
 // --- ENDPOINTS DEL SCRAPER ROBOT (SUNAT) --
 // ==========================================
 
-const { checkClientBuzon } = require('./scraper');
-
-// Escaneo bajo demanda de un cliente específico
-app.post('/api/scraper/check/:id', async (req, res) => {
+// Escaneo bajo demanda de un cliente específico del usuario
+app.post('/api/scraper/check/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const { deviceId } = req.body || {};
 
-    const clientRes = await pool.query('SELECT * FROM clients WHERE id = $1', [id]);
+    const clientRes = await pool.query(
+      'SELECT * FROM clients WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)',
+      [id, req.userId]
+    );
     if (clientRes.rows.length === 0) {
       return res.status(404).json({ error: 'Cliente no encontrado' });
     }
@@ -569,7 +744,7 @@ app.post('/api/scraper/check/:id', async (req, res) => {
       );
 
       const updated = updateRes.rows[0];
-      io.emit('client:updated', {
+      broadcastToUser(req.userId, 'client:updated', {
         client: updated,
         originDeviceId: deviceId
       });
@@ -588,13 +763,15 @@ app.post('/api/scraper/check/:id', async (req, res) => {
   }
 });
 
-// Escaneo masivo de todos los clientes
-app.post('/api/scraper/check-all', async (req, res) => {
+// Escaneo masivo de los clientes del usuario
+app.post('/api/scraper/check-all', authMiddleware, async (req, res) => {
   try {
-    const clientsRes = await pool.query('SELECT * FROM clients');
+    const clientsRes = await pool.query(
+      'SELECT * FROM clients WHERE user_id = $1 OR user_id IS NULL',
+      [req.userId]
+    );
     const clients = clientsRes.rows;
 
-    // Responder de inmediato y ejecutar en segundo plano
     res.json({ message: `Escaneo en segundo plano iniciado para ${clients.length} clientes.` });
 
     (async () => {
@@ -609,7 +786,7 @@ app.post('/api/scraper/check-all', async (req, res) => {
                RETURNING *`,
               [scan.notificaciones_pendientes, scan.origen_notificacion, scan.detalle_notificacion, c.id]
             );
-            io.emit('client:updated', { client: upd.rows[0] });
+            broadcastToUser(req.userId, 'client:updated', { client: upd.rows[0] });
           }
         } catch (e) {
           console.error(`Error escaneando cliente ${c.ruc}:`, e);

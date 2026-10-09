@@ -9,11 +9,13 @@ import SidebarMenu from './components/SidebarMenu';
 import AgendaModal from './components/AgendaModal';
 import ClientModal from './components/ClientModal';
 import DeviceShareModal from './components/DeviceShareModal';
+import LoginView from './components/LoginView';
 import { api } from './services/api';
-import { socket, getDeviceId } from './services/socket';
+import { socket, getDeviceId, joinUserRoom } from './services/socket';
 import { Loader2 } from 'lucide-react';
 
 export default function App() {
+  const [currentUser, setCurrentUser] = useState(api.getUser());
   const [items, setItems] = useState([]);
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -42,12 +44,22 @@ export default function App() {
 
   const myDeviceId = getDeviceId();
 
-  // 1. Cargar datos iniciales (Agenda y Clientes)
+  // 1. Cargar datos iniciales del usuario
   useEffect(() => {
-    loadAllData();
-  }, []);
+    if (currentUser?.id) {
+      joinUserRoom(currentUser.id);
+      loadAllData();
+    } else {
+      setLoading(false);
+    }
+  }, [currentUser]);
 
   const loadAllData = async () => {
+    if (!api.getToken()) {
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       const [agendaData, clientsData] = await Promise.all([
@@ -57,16 +69,42 @@ export default function App() {
       setItems(agendaData);
       setClients(clientsData);
     } catch (err) {
-      console.error('Error al cargar datos:', err);
+      if (err.message === '401') {
+        handleLogout();
+      } else {
+        console.error('Error al cargar datos:', err);
+      }
     } finally {
       setLoading(false);
     }
+  };
+
+  // Manejadores de Autenticación
+  const handleAuthSuccess = async ({ isRegister, credentials, userData }) => {
+    let result;
+    if (isRegister) {
+      result = await api.register(userData);
+    } else {
+      result = await api.login(credentials);
+    }
+    setCurrentUser(result.user);
+    joinUserRoom(result.user.id);
+  };
+
+  const handleLogout = () => {
+    api.logout();
+    setCurrentUser(null);
+    setItems([]);
+    setClients([]);
   };
 
   // 2. Configurar eventos de WebSocket en Tiempo Real
   useEffect(() => {
     function onConnect() {
       setIsConnected(true);
+      if (currentUser?.id) {
+        joinUserRoom(currentUser.id);
+      }
     }
 
     function onDisconnect() {
@@ -144,7 +182,7 @@ export default function App() {
       socket.off('client:updated', onClientUpdated);
       socket.off('client:deleted', onClientDeleted);
     };
-  }, [myDeviceId]);
+  }, [myDeviceId, currentUser]);
 
   const triggerRemoteHighlight = (id) => {
     setRecentlyUpdatedId(id);
@@ -166,7 +204,8 @@ export default function App() {
       socket.emit('item:toggle_status', {
         id,
         is_completed: newCompletedState,
-        deviceId: myDeviceId
+        deviceId: myDeviceId,
+        userId: currentUser?.id
       });
       await api.toggleStatus(id, newCompletedState);
     } catch (err) {
@@ -195,7 +234,8 @@ export default function App() {
       socket.emit('item:move_kanban', {
         id,
         kanban_status: newColumnId,
-        deviceId: myDeviceId
+        deviceId: myDeviceId,
+        userId: currentUser?.id
       });
       await api.moveKanban(id, newColumnId);
     } catch (err) {
@@ -271,6 +311,11 @@ export default function App() {
     }
   };
 
+  // Si no hay usuario autenticado, renderizar la pantalla de Login / Registro
+  if (!currentUser) {
+    return <LoginView onLoginSuccess={handleAuthSuccess} />;
+  }
+
   // Métricas calculadas para el menú
   const totalItems = items.length;
   const completedItems = items.filter((i) => i.is_completed || i.kanban_status === 'done').length;
@@ -296,7 +341,7 @@ export default function App() {
   });
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex font-sans selection:bg-blue-600 selection:text-white">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex font-sans selection:bg-slate-700 selection:text-white">
       {/* Menú Lateral y Barra de Navegación Móvil */}
       <SidebarMenu
         currentView={currentView}
@@ -315,6 +360,8 @@ export default function App() {
           total: totalClientsCount,
           alerts: clientAlertsCount
         }}
+        user={currentUser}
+        onLogout={handleLogout}
       />
 
       {/* Contenedor Principal (con offset para sidebar en desktop y padding inferior para móvil) */}
@@ -323,6 +370,8 @@ export default function App() {
         <Header
           isConnected={isConnected}
           connectedCount={connectedCount}
+          user={currentUser}
+          onLogout={handleLogout}
           onOpenCreateModal={() => {
             if (currentView === 'clients') {
               setEditingClient(null);
@@ -336,28 +385,29 @@ export default function App() {
           onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
         />
 
-        {/* Área de Vistas Dinámicas */}
-        <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-5 sm:py-7 pb-24 md:pb-10">
+        {/* Contenido Principal */}
+        <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 space-y-6 pb-24 md:pb-8">
           {loading ? (
-            <div className="flex flex-col items-center justify-center py-24 text-slate-400 gap-3">
-              <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-              <p className="text-sm font-medium">Sincronizando sistema en vivo...</p>
+            <div className="flex flex-col items-center justify-center py-24 space-y-3">
+              <Loader2 className="w-8 h-8 animate-spin text-slate-300" />
+              <p className="text-xs text-slate-400 font-medium">Sincronizando información...</p>
             </div>
           ) : (
             <>
-              {/* Vista 1: Agenda */}
+              {/* Vista 1: Agenda Tradicional */}
               {currentView === 'agenda' && (
                 <>
                   <StatsBar
                     items={items}
                     activeFilter={activeFilter}
-                    setActiveFilter={setActiveFilter}
-                    searchQuery={searchQuery}
-                    setSearchQuery={setSearchQuery}
+                    onFilterChange={setActiveFilter}
                   />
+
                   <AgendaList
                     items={filteredItems}
                     recentlyUpdatedId={recentlyUpdatedId}
+                    searchQuery={searchQuery}
+                    onSearchChange={setSearchQuery}
                     onToggleStatus={handleToggleStatus}
                     onEdit={(item) => {
                       setEditingItem(item);
@@ -423,7 +473,7 @@ export default function App() {
 
         {/* Footer */}
         <footer className="border-t border-slate-900 py-3.5 px-6 text-center text-xs text-slate-500 hidden md:block">
-          Agenda MQL • Gestión de Clientes, SUNAT Clave SOL y Sincronización en Tiempo Real Multi-dispositivo
+          M|Q Estudio Contable • Gestión Tributaria, Clientes RUC y Sincronización Multi-dispositivo en Tiempo Real
         </footer>
       </div>
 
