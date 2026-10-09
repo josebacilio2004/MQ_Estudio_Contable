@@ -227,6 +227,18 @@ export default function ClientsView({
             <span className="hidden sm:inline">Escanear Buzones (Robot)</span>
           </button>
 
+          {/* Botón Abrir Bot Telegram */}
+          <a
+            href="https://t.me/mqestudioscontables1_bot"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 text-sky-300 hover:text-white text-xs font-semibold transition active:scale-95 shadow-sm"
+            title="Abrir bot en Telegram para recibir alertas en tiempo real y comandos de escaneo"
+          >
+            <Send className="w-3.5 h-3.5 text-sky-400" />
+            <span className="hidden md:inline">Bot Telegram</span>
+          </a>
+
           {/* Botón Registrar Cliente */}
           <button
             onClick={onOpenCreateClient}

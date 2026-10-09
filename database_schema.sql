@@ -60,3 +60,11 @@ CREATE TABLE IF NOT EXISTS clients (
 CREATE INDEX IF NOT EXISTS idx_clients_user ON clients(user_id);
 CREATE INDEX IF NOT EXISTS idx_clients_ruc ON clients(ruc);
 CREATE INDEX IF NOT EXISTS idx_clients_razon ON clients(razon_social);
+
+-- 4. Tabla de Suscriptores de Alertas por Telegram (@mqestudioscontables1_bot)
+CREATE TABLE IF NOT EXISTS telegram_subscribers (
+  chat_id BIGINT PRIMARY KEY,
+  username VARCHAR(100),
+  first_name VARCHAR(100),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);

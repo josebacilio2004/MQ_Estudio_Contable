@@ -5,6 +5,7 @@ const cors = require('cors');
 const { pool, initDb } = require('./db');
 const { hashPassword, verifyPassword, generateToken, authMiddleware } = require('./auth');
 const { checkClientBuzon } = require('./scraper');
+const { initTelegramBot, broadcastTelegramAlert } = require('./telegram');
 
 const app = express();
 const server = http.createServer(app);
@@ -749,6 +750,11 @@ app.post('/api/scraper/check/:id', authMiddleware, async (req, res) => {
         originDeviceId: deviceId
       });
 
+      // Enviar alerta instantánea por Telegram si hay notificaciones
+      if (scanResult.notificaciones_pendientes > 0) {
+        broadcastTelegramAlert(updated, scanResult).catch(console.error);
+      }
+
       return res.json({ success: true, client: updated });
     } else {
       return res.json({
@@ -786,7 +792,13 @@ app.post('/api/scraper/check-all', authMiddleware, async (req, res) => {
                RETURNING *`,
               [scan.notificaciones_pendientes, scan.origen_notificacion, scan.detalle_notificacion, c.id]
             );
-            broadcastToUser(req.userId, 'client:updated', { client: upd.rows[0] });
+            const clientUpdated = upd.rows[0];
+            broadcastToUser(req.userId, 'client:updated', { client: clientUpdated });
+
+            // Enviar alerta por Telegram si tiene notificaciones pendientes
+            if (scan.notificaciones_pendientes > 0) {
+              broadcastTelegramAlert(clientUpdated, scan).catch(console.error);
+            }
           }
         } catch (e) {
           console.error(`Error escaneando cliente ${c.ruc}:`, e);
@@ -806,6 +818,8 @@ initDb().then(() => {
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Servidor Agenda MQL corriendo en puerto ${PORT}`);
     console.log(`📡 WebSocket listo para conexiones concurrentes.`);
+    // Iniciar Bot interactivo de Telegram
+    initTelegramBot(pool, checkClientBuzon).catch(console.error);
   });
 }).catch((err) => {
   console.error('❌ Error fatal al iniciar la base de datos:', err);

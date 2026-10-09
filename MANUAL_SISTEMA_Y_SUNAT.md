@@ -138,3 +138,32 @@ Para abrir el sistema en cualquier celular o tablet:
    ```
 3. Inicia sesión con tu usuario y contraseña.
 4. Puedes pulsar el menú del navegador y seleccionar **"Agregar a la pantalla de inicio"** para usar el sistema como una aplicación móvil nativa (PWA / Web App).
+
+---
+
+## 🤖 6. Bot Oficial de Telegram (`@mqestudioscontables1_bot`)
+
+El sistema cuenta con un bot inteligente en Telegram para que la contadora y su equipo reciban notificaciones automáticas en tiempo real en sus celulares y puedan controlar el scraper mediante comandos:
+
+* **Enlace directo al Bot:** [t.me/mqestudioscontables1_bot](https://t.me/mqestudioscontables1_bot)
+* **Nombre:** `mq_estudioscontables_bot`
+* **Usuario:** `@mqestudioscontables1_bot`
+
+### 📲 Cómo Activar Alertas en tu Celular:
+1. Abre Telegram y busca `@mqestudioscontables1_bot` (o haz clic en el botón azul **"Bot Telegram"** en la barra superior del sistema web).
+2. Pulsa el botón **Iniciar** o envía el comando `/start`.
+3. Tu cuenta quedará registrada automáticamente en la base de datos de Supabase.
+
+### 📋 Comandos Disponibles en Telegram:
+| Comando | Acción |
+| :--- | :--- |
+| `/start` | Vincula tu chat de Telegram y muestra el menú de bienvenida. |
+| `/alertas` | Muestra la lista de clientes que tienen notificaciones pendientes en SUNAT o SUNAFIL. |
+| `/clientes` | Muestra el listado de clientes registrados con su estado y RUC. |
+| `/escanear` | Inicia el robot en el servidor para revisar todos los buzones SOL en segundo plano. |
+| `/escanear <RUC>` | Ejecuta el escáner inmediatamente para un cliente específico (ej: `/escanear 10418236103`). |
+| `/ayuda` | Muestra la lista de comandos e instrucciones. |
+
+### 🚨 Alertas Push Automáticas:
+Cada vez que el robot escanea un buzón (desde la web, por comando o por tarea programada) y detecta una notificación nueva, enviará automáticamente un mensaje a todos los chats de Telegram suscritos con los detalles del requerimiento y el enlace directo al sistema web.
+

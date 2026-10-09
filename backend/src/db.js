@@ -53,6 +53,17 @@ async function initDb() {
   `;
   await pool.query(createUsersTableQuery);
 
+  // Tabla de Suscriptores de Alertas por Telegram
+  const createTelegramSubscribersQuery = `
+    CREATE TABLE IF NOT EXISTS telegram_subscribers (
+      chat_id BIGINT PRIMARY KEY,
+      username VARCHAR(100),
+      first_name VARCHAR(100),
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    );
+  `;
+  await pool.query(createTelegramSubscribersQuery);
+
   // 2. Tabla de Agenda
   const createTableQuery = `
     CREATE TABLE IF NOT EXISTS agenda_items (
