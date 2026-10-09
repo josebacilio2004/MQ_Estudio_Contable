@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import SunatLoginModal from './SunatLoginModal';
 import SunatInboxModal from './SunatInboxModal';
+import ExportPasswordsModal from './ExportPasswordsModal';
 import { api } from '../services/api';
 
 export default function ClientsView({
@@ -41,6 +42,7 @@ export default function ClientsView({
   const [copiedKey, setCopiedKey] = useState(null);
   const [selectedSunatClient, setSelectedSunatClient] = useState(null);
   const [selectedInboxClient, setSelectedInboxClient] = useState(null);
+  const [showExportModal, setShowExportModal] = useState(false);
   const [scanningClientId, setScanningClientId] = useState(null);
   const [isScanningAll, setIsScanningAll] = useState(false);
   const [scanStatusMessage, setScanStatusMessage] = useState(null);
@@ -241,6 +243,16 @@ export default function ClientsView({
             <Send className="w-3.5 h-3.5 text-sky-400" />
             <span className="hidden md:inline">Bot Telegram</span>
           </a>
+
+          {/* Botón Autocompletar Móvil / Google */}
+          <button
+            onClick={() => setShowExportModal(true)}
+            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 hover:text-white text-xs font-semibold transition active:scale-95 shadow-sm"
+            title="Autocompletar credenciales en Celulares, Tablets y PC mediante Google Passwords"
+          >
+            <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden lg:inline">Autocompletar Móvil</span>
+          </button>
 
           {/* Botón Registrar Cliente */}
           <button
@@ -545,6 +557,14 @@ export default function ClientsView({
         onClose={() => setSelectedSunatClient(null)}
         client={selectedSunatClient}
       />
+
+      {/* Modal de Sincronización y Exportación de Contraseñas para Celular y Google */}
+      <ExportPasswordsModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        clients={clients}
+      />
     </div>
   );
 }
+

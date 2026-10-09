@@ -12,6 +12,8 @@ import {
   RotateCcw,
   GripVertical
 } from 'lucide-react';
+import { triggerHaptic } from '../utils/haptics';
+
 
 const COLUMNS = [
   {
@@ -74,9 +76,15 @@ export default function KanbanBoard({
     setDragOverColumn(null);
     const itemId = e.dataTransfer.getData('text/plain') || draggedItemId;
     if (itemId) {
+      triggerHaptic(15);
       onMoveKanban(itemId, columnId);
     }
     setDraggedItemId(null);
+  };
+
+  const handleMoveColumn = (itemId, targetCol) => {
+    triggerHaptic(15);
+    onMoveKanban(itemId, targetCol);
   };
 
   const getDomainFromUrl = (url) => {
@@ -236,7 +244,7 @@ export default function KanbanBoard({
                       <div className="flex items-center justify-end gap-1.5 pt-2 border-t border-slate-800/60">
                         {column.id === 'todo' && (
                           <button
-                            onClick={() => onMoveKanban(item.id, 'in_progress')}
+                            onClick={() => handleMoveColumn(item.id, 'in_progress')}
                             className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 text-[10px] font-semibold border border-amber-500/30 transition active:scale-95"
                           >
                             <span>➔ Progreso</span>
@@ -246,13 +254,13 @@ export default function KanbanBoard({
                         {column.id === 'in_progress' && (
                           <>
                             <button
-                              onClick={() => onMoveKanban(item.id, 'todo')}
+                              onClick={() => handleMoveColumn(item.id, 'todo')}
                               className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-semibold transition active:scale-95"
                             >
                               Por Hacer
                             </button>
                             <button
-                              onClick={() => onMoveKanban(item.id, 'done')}
+                              onClick={() => handleMoveColumn(item.id, 'done')}
                               className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 text-[10px] font-semibold border border-emerald-500/30 transition active:scale-95"
                             >
                               <CheckCircle2 className="w-3 h-3" />
@@ -263,7 +271,7 @@ export default function KanbanBoard({
 
                         {column.id === 'done' && (
                           <button
-                            onClick={() => onMoveKanban(item.id, 'todo')}
+                            onClick={() => handleMoveColumn(item.id, 'todo')}
                             className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-semibold transition active:scale-95"
                           >
                             <RotateCcw className="w-2.5 h-2.5" />

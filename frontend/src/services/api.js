@@ -264,5 +264,13 @@ export const api = {
     });
     if (!res.ok) throw new Error('Error al registrar notificación');
     return res.json();
+  },
+
+  // --- OPEN GRAPH METADATA ---
+  async getLinkMetadata(url) {
+    const res = await fetch(`${getBaseUrl()}/metadata?url=${encodeURIComponent(url)}`);
+    if (!res.ok) throw new Error('Error al consultar metadatos del enlace');
+    return res.json();
   }
 };
+

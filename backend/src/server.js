@@ -977,6 +977,104 @@ app.post('/api/scraper/check-all', authMiddleware, async (req, res) => {
   }
 });
 
+// ==========================================
+// --- OPEN GRAPH LINK PREVIEW METADATA -----
+// ==========================================
+app.get('/api/metadata', async (req, res) => {
+  try {
+    const targetUrl = req.query.url;
+    if (!targetUrl) {
+      return res.status(400).json({ error: 'Falta parámetro url' });
+    }
+
+    let parsed;
+    try {
+      parsed = new URL(targetUrl);
+    } catch {
+      return res.status(400).json({ error: 'URL no válida' });
+    }
+
+    const domain = parsed.hostname;
+    const defaultFavicon = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3500);
+
+    let html = '';
+    try {
+      const response = await fetch(targetUrl, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+        }
+      });
+      clearTimeout(timeout);
+      if (response.ok) {
+        html = await response.text();
+      }
+    } catch (e) {
+      clearTimeout(timeout);
+      return res.json({
+        title: domain,
+        description: targetUrl,
+        image: null,
+        favicon: defaultFavicon,
+        domain,
+        url: targetUrl
+      });
+    }
+
+    // Extraer title
+    const titleMatch = html.match(/<meta property=["']og:title["'] content=["'](.*?)["']/i) ||
+                       html.match(/<title[^>]*>(.*?)<\/title>/i) ||
+                       html.match(/<meta name=["']twitter:title["'] content=["'](.*?)["']/i);
+    const title = titleMatch ? titleMatch[1].trim() : domain;
+
+    // Extraer description
+    const descMatch = html.match(/<meta property=["']og:description["'] content=["'](.*?)["']/i) ||
+                      html.match(/<meta name=["']description["'] content=["'](.*?)["']/i) ||
+                      html.match(/<meta name=["']twitter:description["'] content=["'](.*?)["']/i);
+    const description = descMatch ? descMatch[1].trim() : '';
+
+    // Extraer image
+    const imgMatch = html.match(/<meta property=["']og:image["'] content=["'](.*?)["']/i) ||
+                     html.match(/<meta name=["']twitter:image["'] content=["'](.*?)["']/i);
+    let image = imgMatch ? imgMatch[1].trim() : null;
+    if (image && !image.startsWith('http')) {
+      try {
+        image = new URL(image, targetUrl).href;
+      } catch {}
+    }
+
+    // Extraer favicon
+    const favMatch = html.match(/<link[^>]+rel=["'](?:shortcut )?icon["'][^>]+href=["'](.*?)["']/i);
+    let favicon = favMatch ? favMatch[1].trim() : null;
+    if (favicon && !favicon.startsWith('http')) {
+      try {
+        favicon = new URL(favicon, targetUrl).href;
+      } catch {
+        favicon = defaultFavicon;
+      }
+    } else if (!favicon) {
+      favicon = defaultFavicon;
+    }
+
+    res.json({
+      title,
+      description,
+      image,
+      favicon,
+      domain,
+      url: targetUrl
+    });
+  } catch (err) {
+    console.error('Error al extraer metadata OpenGraph:', err);
+    res.status(500).json({ error: 'Error al consultar metadatos del enlace' });
+  }
+});
+
+
 const PORT = process.env.PORT || 4100;
 
 initDb().then(() => {

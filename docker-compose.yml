@@ -47,5 +47,14 @@ services:
     ports:
       - "3100:3100"
 
+  # Cloudflare Tunnel público gratuito sin abrir puertos (opcional para acceso global remoto)
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: agenda_mql_tunnel
+    restart: unless-stopped
+    command: tunnel --url http://frontend:3100
+    depends_on:
+      - frontend
+
 volumes:
   agenda_pgdata:

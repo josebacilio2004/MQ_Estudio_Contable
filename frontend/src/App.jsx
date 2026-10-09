@@ -12,7 +12,9 @@ import DeviceShareModal from './components/DeviceShareModal';
 import LoginView from './components/LoginView';
 import { api } from './services/api';
 import { socket, getDeviceId, joinUserRoom } from './services/socket';
-import { Loader2 } from 'lucide-react';
+import { offlineSync } from './services/offlineSync';
+import { triggerHaptic, requestNotificationPermission, checkUpcomingEvents } from './utils/haptics';
+import { Loader2, WifiOff, Layers, Tag } from 'lucide-react';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(api.getUser());
@@ -23,12 +25,17 @@ export default function App() {
   const [connectedCount, setConnectedCount] = useState(1);
   const [recentlyUpdatedId, setRecentlyUpdatedId] = useState(null);
 
+  // Soporte Offline y Notificaciones
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [offlinePendingCount, setOfflinePendingCount] = useState(0);
+
   // Vistas y Menú
   const [currentView, setCurrentView] = useState('agenda'); // 'agenda' | 'kanban' | 'clients' | 'links'
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // Filtros y Búsqueda de Agenda
+  // Filtros, Espacios y Búsqueda de Agenda
   const [activeFilter, setActiveFilter] = useState('all');
+  const [selectedSpace, setSelectedSpace] = useState('ALL'); // 'ALL' | categoría específica
   const [searchQuery, setSearchQuery] = useState('');
 
   // Modales de Agenda
@@ -49,10 +56,34 @@ export default function App() {
     if (currentUser?.id) {
       joinUserRoom(currentUser.id);
       loadAllData();
+      requestNotificationPermission();
     } else {
       setLoading(false);
     }
   }, [currentUser]);
+
+  // Soporte Offline: Suscripción a eventos de conexión y cola
+  useEffect(() => {
+    const unsubscribe = offlineSync.subscribe(({ isOnline: online, pendingCount }) => {
+      setIsOnline(online);
+      setOfflinePendingCount(pendingCount);
+      if (online && pendingCount > 0) {
+        offlineSync.syncPendingQueue(api).then(() => loadAllData());
+      }
+    });
+    return unsubscribe;
+  }, []);
+
+  // Notificaciones Web Push: Chequeo automático de eventos próximos cada 45 segundos
+  useEffect(() => {
+    if (currentUser && items.length > 0) {
+      checkUpcomingEvents(items);
+      const interval = setInterval(() => {
+        checkUpcomingEvents(items);
+      }, 45000);
+      return () => clearInterval(interval);
+    }
+  }, [currentUser, items]);
 
   const loadAllData = async () => {
     if (!api.getToken()) {
@@ -324,10 +355,22 @@ export default function App() {
   const totalClientsCount = clients.length;
   const clientAlertsCount = clients.filter((c) => (c.notificaciones_pendientes || 0) > 0).length;
 
-  // Filtrado de elementos para vista de lista de agenda
+  // Lista dinámica de Espacios / Categorías
+  const availableSpaces = Array.from(new Set([
+    'General',
+    'SUNAT / Tributario',
+    'Reuniones Clientes',
+    'Trading / Finanzas',
+    'Desarrollo / TI',
+    'Auditoría',
+    ...items.map((i) => i.category).filter(Boolean)
+  ]));
+
+  // Filtrado de elementos para vista de lista de agenda y kanban
   const filteredItems = items.filter((item) => {
     if (activeFilter === 'pending' && (item.is_completed || item.kanban_status === 'done')) return false;
     if (activeFilter === 'completed' && !(item.is_completed || item.kanban_status === 'done')) return false;
+    if (selectedSpace !== 'ALL' && item.category !== selectedSpace) return false;
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -342,6 +385,17 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex font-sans selection:bg-slate-700 selection:text-white">
+      {/* Banner de Modo Offline */}
+      {!isOnline && (
+        <div className="fixed top-0 left-0 right-0 z-50 bg-amber-600 text-white text-xs font-bold px-4 py-2 flex items-center justify-between shadow-lg animate-fade-in">
+          <div className="flex items-center gap-2">
+            <WifiOff className="w-4 h-4 animate-pulse" />
+            <span>Modo Offline: Sin conexión a internet. Los cambios se guardarán localmente ({offlinePendingCount} pendientes de sincronizar).</span>
+          </div>
+          <span className="text-[10px] bg-amber-700 px-2 py-0.5 rounded-full">Local</span>
+        </div>
+      )}
+
       {/* Menú Lateral y Barra de Navegación Móvil */}
       <SidebarMenu
         currentView={currentView}
@@ -365,7 +419,7 @@ export default function App() {
       />
 
       {/* Contenedor Principal (con offset para sidebar en desktop y padding inferior para móvil) */}
-      <div className="flex-1 flex flex-col min-w-0 md:pl-72">
+      <div className={`flex-1 flex flex-col min-w-0 md:pl-72 ${!isOnline ? 'pt-8' : ''}`}>
         {/* Cabecera */}
         <Header
           isConnected={isConnected}
@@ -387,6 +441,37 @@ export default function App() {
 
         {/* Contenido Principal */}
         <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 space-y-6 pb-24 md:pb-8">
+          {/* Selector de Espacios / Proyectos para vistas de Agenda y Kanban */}
+          {(currentView === 'agenda' || currentView === 'kanban') && (
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+              <button
+                onClick={() => setSelectedSpace('ALL')}
+                className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition flex items-center gap-1.5 shadow-sm ${
+                  selectedSpace === 'ALL'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>Todos los Espacios</span>
+              </button>
+              {availableSpaces.map((space) => (
+                <button
+                  key={space}
+                  onClick={() => setSelectedSpace(space)}
+                  className={`px-3 py-1.5 rounded-xl font-semibold whitespace-nowrap transition flex items-center gap-1.5 ${
+                    selectedSpace === space
+                      ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-sm'
+                      : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200'
+                  }`}
+                >
+                  <Tag className="w-3 h-3 text-blue-400" />
+                  <span>{space}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           {loading ? (
             <div className="flex flex-col items-center justify-center py-24 space-y-3">
               <Loader2 className="w-8 h-8 animate-spin text-slate-300" />
@@ -425,7 +510,7 @@ export default function App() {
               {/* Vista 2: Kanban */}
               {currentView === 'kanban' && (
                 <KanbanBoard
-                  items={items}
+                  items={filteredItems}
                   recentlyUpdatedId={recentlyUpdatedId}
                   onMoveKanban={handleMoveKanban}
                   onEdit={(item) => {

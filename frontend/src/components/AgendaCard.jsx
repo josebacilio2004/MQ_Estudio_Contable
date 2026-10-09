@@ -8,6 +8,8 @@ import {
   Pencil, 
   Radio
 } from 'lucide-react';
+import LinkPreviewCard from './LinkPreviewCard';
+import { triggerHaptic } from '../utils/haptics';
 
 export default function AgendaCard({ 
   item, 
@@ -17,6 +19,11 @@ export default function AgendaCard({
   onDelete 
 }) {
   const isCompleted = item.is_completed;
+
+  const handleToggle = () => {
+    triggerHaptic(20);
+    onToggleStatus(item.id, !isCompleted);
+  };
 
   // Extraer dominio limpio para previsualización si no hay etiqueta personalizada
   const getDomainFromUrl = (url) => {
@@ -53,7 +60,7 @@ export default function AgendaCard({
             {/* Checkbox Táctil Ergonómico */}
             <button
               type="button"
-              onClick={() => onToggleStatus(item.id, !isCompleted)}
+              onClick={handleToggle}
               className={`w-7 h-7 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center transition-all active:scale-90 border ${
                 isCompleted
                   ? 'bg-emerald-600 border-emerald-500 text-white shadow-sm shadow-emerald-600/30'
@@ -107,6 +114,11 @@ export default function AgendaCard({
             }`}>
               {item.description}
             </p>
+          )}
+
+          {/* Tarjeta Enriquecida OpenGraph (Notion / Slack) */}
+          {item.external_url && !isCompleted && (
+            <LinkPreviewCard url={item.external_url} label={item.url_label} />
           )}
         </div>
       </div>
