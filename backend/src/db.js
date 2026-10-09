@@ -25,7 +25,7 @@ async function waitForDb(retries = 15, delay = 2000) {
       client.release();
       return;
     } catch (err) {
-      console.log(`⏳ Esperando conexión con PostgreSQL... (intento ${i + 1}/${retries})`);
+      console.log(`⏳ Esperando conexión con PostgreSQL... (intento ${i + 1}/${retries}) - Detalle: ${err.message}`);
       await new Promise(res => setTimeout(res, delay));
     }
   }
