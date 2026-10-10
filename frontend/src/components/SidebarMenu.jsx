@@ -9,7 +9,8 @@ import {
   Sparkles, 
   Building2, 
   LogOut,
-  UserCheck
+  UserCheck,
+  BarChart3
 } from 'lucide-react';
 import logoImg from '../assets/icon_sin_fondo.png';
 
@@ -26,6 +27,12 @@ export default function SidebarMenu({
   onLogout
 }) {
   const menuItems = [
+    {
+      id: 'dashboard',
+      label: 'Dashboard BI',
+      icon: BarChart3,
+      description: 'Métricas y decisiones clave'
+    },
     {
       id: 'agenda',
       label: 'Vista Agenda',
@@ -229,10 +236,20 @@ export default function SidebarMenu({
       </aside>
 
       {/* Barra de Navegación Inferior Móvil */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 border-t border-slate-800/80 backdrop-blur-xl px-2 py-1.5 flex items-center justify-around shadow-2xl safe-area-pb">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 border-t border-slate-800/80 backdrop-blur-xl px-1.5 py-1.5 flex items-center justify-around shadow-2xl safe-area-pb">
+        <button
+          onClick={() => setCurrentView('dashboard')}
+          className={`flex flex-col items-center gap-0.5 py-1 px-2 rounded-xl transition ${
+            currentView === 'dashboard' ? 'text-white font-bold' : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <BarChart3 className="w-4 h-4 text-blue-400" />
+          <span className="text-[10px]">Dashboard</span>
+        </button>
+
         <button
           onClick={() => setCurrentView('agenda')}
-          className={`flex flex-col items-center gap-0.5 py-1 px-2.5 rounded-xl transition ${
+          className={`flex flex-col items-center gap-0.5 py-1 px-2 rounded-xl transition ${
             currentView === 'agenda' ? 'text-white font-bold' : 'text-slate-400 hover:text-slate-200'
           }`}
         >

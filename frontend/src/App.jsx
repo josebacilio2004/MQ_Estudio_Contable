@@ -5,6 +5,9 @@ import AgendaList from './components/AgendaList';
 import KanbanBoard from './components/KanbanBoard';
 import LinksDirectory from './components/LinksDirectory';
 import ClientsView from './components/ClientsView';
+import BiDashboard from './components/BiDashboard';
+import SunatInboxModal from './components/SunatInboxModal';
+import SunatLoginModal from './components/SunatLoginModal';
 import SidebarMenu from './components/SidebarMenu';
 import AgendaModal from './components/AgendaModal';
 import ClientModal from './components/ClientModal';
@@ -29,9 +32,23 @@ export default function App() {
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [offlinePendingCount, setOfflinePendingCount] = useState(0);
 
-  // Vistas y Menú
-  const [currentView, setCurrentView] = useState('agenda'); // 'agenda' | 'kanban' | 'clients' | 'links'
+  // Vistas y Menú (Dashboard BI por defecto para toma de decisiones)
+  const [currentView, setCurrentView] = useState(() => {
+    return localStorage.getItem('mql_active_view') || 'dashboard';
+  });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Estados globales para modales de Buzón y Login SUNAT
+  const [selectedInboxClient, setSelectedInboxClient] = useState(null);
+  const [selectedSunatClient, setSelectedSunatClient] = useState(null);
+  const [isScanningAll, setIsScanningAll] = useState(false);
+
+  const handleSetCurrentView = (view) => {
+    setCurrentView(view);
+    try {
+      localStorage.setItem('mql_active_view', view);
+    } catch {}
+  };
 
   // Filtros, Espacios y Búsqueda de Agenda
   const [activeFilter, setActiveFilter] = useState('all');
@@ -342,6 +359,21 @@ export default function App() {
     }
   };
 
+  const handleScanAllBuzones = async () => {
+    if (isScanningAll) return;
+    if (!window.confirm(`¿Deseas iniciar el robot escáner para todos los ${clients.length} clientes? Se procesarán en segundo plano en el servidor.`)) return;
+    setIsScanningAll(true);
+    try {
+      await api.scanAllClients();
+      alert('✅ Escaneo masivo iniciado. Los clientes se actualizarán automáticamente en tiempo real.');
+    } catch (err) {
+      console.error('Error al iniciar escaneo:', err);
+      alert('Error al iniciar escaneo en servidor: ' + err.message);
+    } finally {
+      setIsScanningAll(false);
+    }
+  };
+
   // Si no hay usuario autenticado, renderizar la pantalla de Login / Registro
   if (!currentUser) {
     return <LoginView onLoginSuccess={handleAuthSuccess} />;
@@ -399,7 +431,7 @@ export default function App() {
       {/* Menú Lateral y Barra de Navegación Móvil */}
       <SidebarMenu
         currentView={currentView}
-        setCurrentView={setCurrentView}
+        setCurrentView={handleSetCurrentView}
         isMobileMenuOpen={isMobileMenuOpen}
         setIsMobileMenuOpen={setIsMobileMenuOpen}
         onOpenShareModal={() => setIsShareModalOpen(true)}
@@ -479,6 +511,20 @@ export default function App() {
             </div>
           ) : (
             <>
+              {/* Vista 0: Dashboard BI Ejecutivo y Toma de Decisiones */}
+              {currentView === 'dashboard' && (
+                <BiDashboard
+                  clients={clients}
+                  items={items}
+                  onNavigateToClients={() => handleSetCurrentView('clients')}
+                  onNavigateToAgenda={() => handleSetCurrentView('agenda')}
+                  onOpenInboxForClient={(client) => setSelectedInboxClient(client)}
+                  onOpenSunatLogin={(client) => setSelectedSunatClient(client)}
+                  onScanAllBuzones={handleScanAllBuzones}
+                  isScanningAll={isScanningAll}
+                />
+              )}
+
               {/* Vista 1: Agenda Tradicional */}
               {currentView === 'agenda' && (
                 <>
@@ -582,6 +628,24 @@ export default function App() {
       <DeviceShareModal
         isOpen={isShareModalOpen}
         onClose={() => setIsShareModalOpen(false)}
+      />
+
+      {/* Modal Global de Bandeja de Correo / Notificaciones SUNAT */}
+      <SunatInboxModal
+        isOpen={!!selectedInboxClient}
+        onClose={() => setSelectedInboxClient(null)}
+        client={selectedInboxClient}
+        onOpenSunatLogin={(c) => {
+          setSelectedInboxClient(null);
+          setSelectedSunatClient(c);
+        }}
+      />
+
+      {/* Modal Global de Acceso SUNAT Clave SOL con AutoLogin */}
+      <SunatLoginModal
+        isOpen={!!selectedSunatClient}
+        onClose={() => setSelectedSunatClient(null)}
+        client={selectedSunatClient}
       />
     </div>
   );

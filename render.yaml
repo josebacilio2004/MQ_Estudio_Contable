@@ -10,3 +10,5 @@ services:
         value: 4100
       - key: DATABASE_URL
         sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        value: 8300960193:AAGLFhdtA-BRY3TaVfXiWDZok_ox6KqeH4Q
