@@ -24,11 +24,13 @@ import {
   Loader2,
   Inbox,
   List,
-  LayoutGrid
+  LayoutGrid,
+  Puzzle
 } from 'lucide-react';
 import SunatLoginModal from './SunatLoginModal';
 import SunatInboxModal from './SunatInboxModal';
 import ExportPasswordsModal from './ExportPasswordsModal';
+import InstallExtensionModal from './InstallExtensionModal';
 import { api } from '../services/api';
 
 export default function ClientsView({
@@ -48,6 +50,7 @@ export default function ClientsView({
   const [selectedSunatClient, setSelectedSunatClient] = useState(null);
   const [selectedInboxClient, setSelectedInboxClient] = useState(null);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showExtensionModal, setShowExtensionModal] = useState(false);
   const [scanningClientId, setScanningClientId] = useState(null);
   const [isScanningAll, setIsScanningAll] = useState(false);
   const [scanStatusMessage, setScanStatusMessage] = useState(null);
@@ -284,6 +287,16 @@ export default function ClientsView({
             <span className="hidden md:inline">Bot Telegram</span>
           </a>
 
+          {/* Botón Extensión PC / Móvil */}
+          <button
+            onClick={() => setShowExtensionModal(true)}
+            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-purple-300 hover:text-white text-xs font-semibold transition active:scale-95 shadow-sm"
+            title="Descargar extensión .zip para PC o ver guía para celulares"
+          >
+            <Puzzle className="w-3.5 h-3.5 text-purple-400" />
+            <span className="hidden lg:inline">Extensión PC (.zip)</span>
+          </button>
+
           {/* Botón Autocompletar Móvil / Google */}
           <button
             onClick={() => setShowExportModal(true)}
@@ -291,7 +304,7 @@ export default function ClientsView({
             title="Autocompletar credenciales en Celulares, Tablets y PC mediante Google Passwords"
           >
             <KeyRound className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden lg:inline">Autocompletar Móvil</span>
+            <span className="hidden xl:inline">Autocompletar Móvil</span>
           </button>
 
           {/* Botón Registrar Cliente */}
@@ -755,6 +768,12 @@ export default function ClientsView({
         isOpen={showExportModal}
         onClose={() => setShowExportModal(false)}
         clients={clients}
+      />
+
+      {/* Modal de Descarga de Extensión e Instrucciones para PC y Móvil */}
+      <InstallExtensionModal
+        isOpen={showExtensionModal}
+        onClose={() => setShowExtensionModal(false)}
       />
     </div>
   );

@@ -12,7 +12,10 @@ import {
   Bookmark,
   AlertCircle,
   HelpCircle,
-  Puzzle
+  Puzzle,
+  Download,
+  Smartphone,
+  Laptop
 } from 'lucide-react';
 
 export default function SunatLoginModal({ isOpen, onClose, client }) {
@@ -226,30 +229,45 @@ export default function SunatLoginModal({ isOpen, onClose, client }) {
 
             {isExtensionInstalled ? (
               <p className="text-[11px] text-emerald-200/90 mt-1 leading-relaxed">
-                ¡Listo! Al hacer clic en "Abrir SUNAT Clave SOL", la extensión rellenará los campos e iniciará sesión automáticamente en 0.3 segundos sin tocar el teclado.
+                ¡Listo! Al hacer clic en "Abrir SUNAT Clave SOL", la extensión abrirá una ventana aislada y rellenará los campos automáticamente en 0.3 segundos sin tocar el teclado.
               </p>
             ) : (
               <p className="text-[11px] text-amber-200/90 mt-1 leading-relaxed">
-                Para que el inicio de sesión sea 100% automático como en Buzon-e, debes cargar la extensión una sola vez en Chrome/Edge.
+                Para que el inicio de sesión sea 100% automático e independiente como en Buzone, puedes instalar la extensión en cualquier PC en 30 segundos.
               </p>
             )}
 
             {/* Guía desplegable de instalación en 3 pasos */}
             {showInstallGuide && !isExtensionInstalled && (
-              <div className="mt-3 pt-3 border-t border-amber-500/30 text-[11px] space-y-1.5 text-slate-200 bg-slate-950/60 p-3 rounded-xl">
-                <p className="font-bold text-amber-300">Pasos rápidos para activarla en Chrome o Edge (15 seg):</p>
-                <ol className="list-decimal list-inside space-y-1 text-slate-300">
-                  <li>Abre una pestaña y escribe <code className="text-amber-300 font-mono">chrome://extensions</code></li>
-                  <li>Activa la casilla <strong>"Modo de desarrollador"</strong> (arriba a la derecha).</li>
-                  <li>Haz clic en <strong>"Cargar descomprimida"</strong> y selecciona la carpeta:
-                    <div className="mt-1 p-1.5 bg-slate-900 rounded font-mono text-[10px] text-emerald-400 select-all">
-                      D:\jose\Agenda_MQL\extension_autologin_sunat
-                    </div>
+              <div className="mt-3 pt-3 border-t border-amber-500/30 text-[11px] space-y-2.5 text-slate-200 bg-slate-950/70 p-3.5 rounded-xl">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-amber-300">Instalación rápida en cualquier PC:</span>
+                  <a
+                    href="./extension_autologin_sunat.zip"
+                    download="extension_autologin_sunat.zip"
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] transition shrink-0"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>Descargar .ZIP</span>
+                  </a>
+                </div>
+
+                <ol className="list-decimal list-inside space-y-1.5 text-slate-300">
+                  <li>
+                    Descarga y descomprime el archivo <code className="text-amber-300 font-mono">extension_autologin_sunat.zip</code> en cualquier carpeta de esta PC.
                   </li>
-                  <li className="text-amber-200 font-semibold">
-                    🔄 Si ya la tenías cargada antes, simplemente pulsa el botón <strong>"Actualizar / Recargar 🔄"</strong> en la tarjeta de la extensión para habilitar el dominio de GitHub Pages.
+                  <li>
+                    Abre en Chrome o Edge: <code className="text-amber-300 font-mono bg-slate-900 px-1 py-0.5 rounded">chrome://extensions</code> y activa <strong>"Modo de desarrollador"</strong> (arriba a la derecha).
+                  </li>
+                  <li>
+                    Haz clic en <strong>"Cargar descomprimida"</strong> y selecciona la carpeta descomprimida.
                   </li>
                 </ol>
+
+                <div className="pt-2 border-t border-slate-800 text-[10px] text-slate-400 flex items-center gap-1.5">
+                  <Smartphone className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                  <span>¿Estás en celular o tablet? En móviles no necesitas extensión: usa la opción <strong>"Ver Buzón"</strong> o el bot de Telegram.</span>
+                </div>
               </div>
             )}
           </div>
